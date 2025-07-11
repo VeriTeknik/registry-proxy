@@ -2,197 +2,136 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Important: Repository Structure
+
+This is the main infrastructure repository containing:
+- `/registry/` - Submodule pointing to https://github.com/VeriTeknik/registry (upstream MCP Registry)
+- `/proxy/` - Enhanced proxy service that adds filtering/sorting capabilities
+- `/main/` - Infrastructure configuration (Traefik, MongoDB, scripts)
+
 ## Project Overview
 
-This is the MCP Registry - a community-driven registry service for Model Context Protocol (MCP) servers. It's a Go-based RESTful API that provides centralized discovery and management of MCP server implementations.
+The plugged.in MCP Registry infrastructure provides:
+1. **Core Registry** (submodule) - The official MCP Registry from modelcontextprotocol
+2. **Enhanced Proxy** - Adds filtering, sorting, and enriched responses
+3. **Infrastructure** - Traefik reverse proxy, MongoDB, deployment scripts
 
-## Important: Fork-Specific Development Guidelines
+## Architecture
 
-**This is a forked repository that needs to maintain sync capability with upstream.**
+```
+User Request → registry.plugged.in → Proxy Service → Core Registry → MongoDB
+                                          ↓
+                                    Enhanced Features:
+                                    - Filtering by registry_name
+                                    - Sorting by release_date
+                                    - Search functionality
+                                    - Enriched responses with packages
+```
 
-### Extension-Only Development Policy
+## Key Features Added by Proxy
 
-1. **DO NOT modify any upstream files** - Only work in:
-   - `/extensions/` directory
-   - Fork-specific configuration files (docker-compose overrides, etc.)
-   - Fork-specific scripts in `/scripts/` that don't conflict with upstream
+1. **Enriched List Responses**: `/v0/servers` now includes package information
+2. **Filtering**: `?registry_name=npm` to filter by package registry
+3. **Sorting**: `?sort=release_date_desc` for various sort orders
+4. **Search**: `?search=term` to search in name/description
+5. **Caching**: 5-minute cache for improved performance
+6. **100% Backward Compatible**: All original endpoints work unchanged
 
-2. **All new features must be in `/extensions/`** - This includes:
-   - VP (v-plugged) API endpoints
-   - Stats and analytics functionality
-   - Real-time Redis analytics
-   - Any custom handlers or services
+## Common Commands
 
-3. **Use composition over modification**:
-   - Extend existing types rather than modifying them
-   - Use interfaces to wrap upstream functionality
-   - Create new endpoints rather than modifying existing ones
-
-4. **Configuration extensions**:
-   - Use docker-compose override files
-   - Add new environment variables with unique prefixes
-   - Don't modify existing configuration structures
-
-## Common Development Commands
-
-### Building
+### Start All Services
 ```bash
-# Docker build (recommended)
-docker build -t registry .
-
-# Direct Go build
-go build ./cmd/registry
-
-# Build publisher tool
-cd tools/publisher && ./build.sh
+cd /home/pluggedin/registry/main
+./start-all.sh
 ```
 
-### Running the Service
+### Stop All Services
 ```bash
-# Start with Docker Compose (includes MongoDB)
-docker compose up
-
-# Run directly (requires MongoDB running separately)
-go run cmd/registry/main.go
+cd /home/pluggedin/registry/main
+./stop-all.sh
 ```
 
-### Testing
+### Update Registry Submodule
 ```bash
-# Unit tests with coverage
-go test -v -race -coverprofile=coverage.out -covermode=atomic ./internal/...
-
-# Integration tests
-./integrationtests/run_tests.sh
-
-# API endpoint tests (requires running server)
-./scripts/test_endpoints.sh
+cd /home/pluggedin/registry/registry
+git pull origin main
+cd ..
+git add registry
+git commit -m "Update registry submodule"
+git push
 ```
 
-### Linting
+### Rebuild Proxy
 ```bash
-# Run golangci-lint
-golangci-lint run --timeout=5m
-
-# Check formatting
-gofmt -s -l .
+cd /home/pluggedin/registry/proxy
+docker build -t registry-proxy:v2 .
+docker compose -f docker-compose-replace.yml up -d
 ```
 
-## Architecture Overview
-
-### Core Components
-
-1. **HTTP API Layer** (`internal/api/`)
-   - Standard Go net/http server
-   - RESTful endpoints: `/v0/health`, `/v0/servers`, `/v0/publish`, etc.
-   - Swagger documentation generation
-   - Request validation and error handling
-
-2. **Service Layer** (`internal/service/`)
-   - Business logic separation from HTTP handlers
-   - Database abstraction through interfaces
-   - Validation and data transformation
-
-3. **Database Layer** (`internal/database/`)
-   - Interface-based design supporting MongoDB and in-memory implementations
-   - Repository pattern for data access
-   - Automatic seed data import on startup
-
-4. **Authentication** (`internal/auth/`)
-   - GitHub OAuth integration for the publish endpoint
-   - Bearer token validation
-   - User verification against GitHub API
-
-### Key Design Patterns
-
-- **Dependency Injection**: Services receive dependencies through constructors
-- **Interface-based Design**: Database and external services use interfaces for testability
-- **Context Propagation**: All handlers and services accept context for cancellation/timeouts
-- **Error Wrapping**: Consistent error handling with descriptive messages
-
-### API Flow Example (Publish Endpoint)
-
-1. Request hits `/v0/publish` handler in `internal/api/handlers.go`
-2. Authentication middleware validates GitHub token
-3. Handler parses and validates request body
-4. Service layer (`internal/service/publish.go`) processes business logic
-5. Database layer persists the server entry
-6. Response formatted and returned to client
-
-## Important Conventions
-
-- **Go Module**: Uses Go 1.23 with module `github.com/modelcontextprotocol/registry`
-- **Error Handling**: Always wrap errors with context using `fmt.Errorf`
-- **Logging**: Use structured logging with appropriate levels
-- **Testing**: Unit tests alongside code, integration tests in separate directory
-- **API Versioning**: All endpoints prefixed with `/v0`
-- **Database Collections**: MongoDB collections versioned (e.g., `servers_v2`)
-
-## Environment Configuration
-
-Key environment variables (prefix: `MCP_REGISTRY_`):
-- `DATABASE_URL`: MongoDB connection string
-- `SERVER_ADDRESS`: HTTP server bind address
-- `GITHUB_CLIENT_ID/SECRET`: GitHub OAuth credentials
-- `SEED_IMPORT`: Enable automatic seed data import
-- `ENVIRONMENT`: Deployment environment (dev/test/prod)
-
-## Development Tips
-
-- Always run `go mod tidy` after adding dependencies
-- Use `docker compose` for consistent development environment
-- Check MongoDB indexes when adding new query patterns
-- Update Swagger docs when modifying API endpoints
-- Integration tests require a running MongoDB instance
-
-## Implementation Strategy: Clean Architecture with Separated Analytics
-
-### Architecture Decision
-This fork implements a **clean separation** between Registry (static metadata) and Analytics (dynamic metrics). See `ARCHITECTURE_DECISION.md` for detailed rationale.
-
-### Registry Service (This Repository)
-**Focus**: Static server metadata, discovery, and search functionality.
-
-**Minimal Model Extension**:
-```go
-type ExtendedServer struct {
-    model.Server
-    Source string `json:"source,omitempty" bson:"source,omitempty"` // "github" | "community" | "private"
-}
+### View Logs
+```bash
+docker logs -f registry-proxy  # Proxy logs
+docker logs -f registry        # Core registry logs
+docker logs -f mongodb         # Database logs
 ```
 
-**Core Endpoints** (minimal enhancements):
-- `GET /v0/servers` - Basic filtering: `?source=github|community|private&search=term&limit=50&offset=0`
-- `POST /v0/publish` - GitHub repos (upstream compatibility)
-- `POST /v0/servers/community` - Community submissions
-- `POST /v0/servers/private` - Private repo submissions
+### Test Endpoints
+```bash
+# Basic health check
+curl https://registry.plugged.in/v0/health
 
-**Event Emission**: Registry emits events for analytics consumption:
-- `server_published`, `server_viewed`, `server_searched`, `server_updated`
+# Test filtering
+curl "https://registry.plugged.in/v0/servers?registry_name=npm"
 
-### Analytics Service (Separate Service)
-**Focus**: All dynamic metrics, usage tracking, trends, and ratings.
+# Test sorting
+curl "https://registry.plugged.in/v0/servers?sort=release_date_desc"
 
-**Responsibilities**:
-- Installation tracking
-- Ratings and reviews
-- MCP capability analytics (tools, prompts, resources)
-- Transport type metrics
-- Real-time statistics
-- Elasticsearch integration
+# Test search
+curl "https://registry.plugged.in/v0/servers?search=mcp"
+```
 
-### Key Principles
-1. **Minimal Registry Changes**: Only add `source` field, keep upstream sync easy
-2. **Event-Driven Architecture**: Registry emits, Analytics consumes
-3. **No Analytics in Registry**: All metrics handled externally
-4. **Technology Freedom**: Analytics can use different stack
-5. **Clean Separation**: Each service has single responsibility
+## Important Configuration
 
-### Implementation Guide
-See `CLEAN_ARCHITECTURE_GUIDE.md` for detailed implementation instructions.
+### Environment Variables
 
-### Benefits
-- Easy upstream syncing (minimal registry changes)
-- Independent scaling of services
-- Clear separation of concerns
-- Registry stays fast and focused
-- Analytics can evolve independently
+#### Registry Service (.env)
+```bash
+MCP_REGISTRY_DATABASE_URL=mongodb://mongodb:27017
+MCP_REGISTRY_ENVIRONMENT=production
+MCP_REGISTRY_SEED_IMPORT=true
+MCP_REGISTRY_GITHUB_CLIENT_ID=<your_github_client_id>
+MCP_REGISTRY_GITHUB_CLIENT_SECRET=<your_github_client_secret>
+```
+
+#### Proxy Service (docker-compose)
+```yaml
+environment:
+  - PROXY_PORT=8090
+  - REGISTRY_URL=http://registry:8080
+```
+
+### GitHub Secrets for CI/CD
+- `DEPLOY_HOST`: Your server IP/hostname
+- `DEPLOY_USER`: SSH username
+- `DEPLOY_PORT`: SSH port (default 22)
+- `DEPLOY_SSH_KEY`: Private SSH key for deployment
+
+## Deployment Notes
+
+1. **Proxy as Main Interface**: All external traffic goes through the proxy
+2. **Registry Internal Only**: Core registry not exposed publicly
+3. **Traefik Routing**: Handles SSL and routes registry.plugged.in to proxy
+4. **MongoDB Shared**: Both services use the same MongoDB instance
+
+## Security Considerations
+
+- GitHub OAuth credentials stored in .env (not in git)
+- MongoDB not exposed externally
+- All traffic SSL/TLS encrypted via Traefik
+- Registry publish endpoint requires valid GitHub token
+
+## Maintenance
+
+- Registry submodule should be kept up to date with upstream
+- Proxy can be modified independently without affecting upstream sync
+- Database backups recommended before major updates
