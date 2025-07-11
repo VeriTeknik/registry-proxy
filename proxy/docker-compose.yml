@@ -1,0 +1,39 @@
+networks:
+  traefik:
+    external: true
+  pluggedin-main:
+    external: true
+
+services:
+  registry-proxy:
+    build: .
+    container_name: registry-proxy
+    restart: unless-stopped
+    environment:
+      - PROXY_PORT=8090
+      - REGISTRY_URL=http://registry:8080
+    networks:
+      - pluggedin-main
+      - traefik
+    labels:
+      - "traefik.enable=true"
+      - "traefik.docker.network=traefik"
+      
+      # HTTPS router
+      - "traefik.http.routers.proxy-secure.rule=Host(`api.plugged.in`)"
+      - "traefik.http.routers.proxy-secure.entrypoints=websecure"
+      - "traefik.http.routers.proxy-secure.tls=true"
+      - "traefik.http.routers.proxy-secure.tls.certresolver=letsencrypt"
+      - "traefik.http.routers.proxy-secure.service=proxy"
+      
+      # Service definition
+      - "traefik.http.services.proxy.loadbalancer.server.port=8090"
+      
+      # Middlewares
+      - "traefik.http.routers.proxy-secure.middlewares=proxy-cors"
+      
+      # CORS headers (same as registry but for all origins during development)
+      - "traefik.http.middlewares.proxy-cors.headers.accessControlAllowOriginList=https://plugged.in,https://staging.plugged.in,http://localhost:12005"
+      - "traefik.http.middlewares.proxy-cors.headers.accessControlAllowMethods=GET,POST,OPTIONS"
+      - "traefik.http.middlewares.proxy-cors.headers.accessControlAllowHeaders=*"
+      - "traefik.http.middlewares.proxy-cors.headers.accessControlMaxAge=100"

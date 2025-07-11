@@ -1,0 +1,50 @@
+networks:
+  traefik:
+    external: true
+  pluggedin-main:
+    external: true
+
+services:
+  registry-proxy:
+    image: registry-proxy:v2
+    container_name: registry-proxy
+    restart: unless-stopped
+    environment:
+      - PROXY_PORT=8090
+      - REGISTRY_URL=http://registry:8080
+    networks:
+      - pluggedin-main
+      - traefik
+    labels:
+      - "traefik.enable=true"
+      - "traefik.docker.network=traefik"
+      
+      # Take over registry.plugged.in domain
+      - "traefik.http.routers.proxy-registry-secure.rule=Host(`registry.plugged.in`)"
+      - "traefik.http.routers.proxy-registry-secure.entrypoints=websecure"
+      - "traefik.http.routers.proxy-registry-secure.tls=true"
+      - "traefik.http.routers.proxy-registry-secure.tls.certresolver=letsencrypt"
+      - "traefik.http.routers.proxy-registry-secure.service=proxy-registry"
+      - "traefik.http.routers.proxy-registry-secure.priority=10"
+      
+      # Service definition
+      - "traefik.http.services.proxy-registry.loadbalancer.server.port=8090"
+      
+      # Middlewares
+      - "traefik.http.routers.proxy-registry-secure.middlewares=proxy-security-headers,proxy-cors"
+      
+      # Security headers
+      - "traefik.http.middlewares.proxy-security-headers.headers.frameDeny=true"
+      - "traefik.http.middlewares.proxy-security-headers.headers.sslRedirect=true"
+      - "traefik.http.middlewares.proxy-security-headers.headers.browserXssFilter=true"
+      - "traefik.http.middlewares.proxy-security-headers.headers.contentTypeNosniff=true"
+      - "traefik.http.middlewares.proxy-security-headers.headers.forceSTSHeader=true"
+      - "traefik.http.middlewares.proxy-security-headers.headers.stsIncludeSubdomains=true"
+      - "traefik.http.middlewares.proxy-security-headers.headers.stsPreload=true"
+      - "traefik.http.middlewares.proxy-security-headers.headers.stsSeconds=31536000"
+      
+      # CORS headers (same as original registry)
+      - "traefik.http.middlewares.proxy-cors.headers.accessControlAllowOriginList=https://plugged.in,https://staging.plugged.in,http://localhost:12005"
+      - "traefik.http.middlewares.proxy-cors.headers.accessControlAllowMethods=GET,POST,PUT,DELETE,OPTIONS"
+      - "traefik.http.middlewares.proxy-cors.headers.accessControlAllowHeaders=*"
+      - "traefik.http.middlewares.proxy-cors.headers.accessControlMaxAge=100"

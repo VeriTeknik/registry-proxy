@@ -1,0 +1,73 @@
+# Environment files
+.env
+.env.*
+!.env.example
+registry/.env
+
+# Docker volumes
+mongodb/
+main/mongodb/
+.db/
+mongo_data/
+data/
+
+# Certificates and secrets
+*.pem
+*.key
+*.crt
+acme.json
+**/acme.json
+letsencrypt/
+main/traefik/acme.json
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Build artifacts
+*.log
+coverage.out
+*.test
+vendor/
+
+# Temporary files
+*.tmp
+*.temp
+*.bak
+*.backup
+
+# Private configuration
+docker-compose.override.yml
+docker-compose.local.yml
+!docker-compose.prod.yml
+!docker-compose-replace.yml
+
+# Sensitive deployment files
+deploy_key*
+.ssh/
+
+# MongoDB data
+journal/
+diagnostic.data/
+.mongodb/
+
+# Go specific
+*.exe
+*.dll
+*.so
+*.dylib
+/proxy/proxy
+/registry/registry
+
+# Node modules (if any frontend added later)
+node_modules/
+
+# Backup files
+*.old
+backup/
