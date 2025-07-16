@@ -31,7 +31,7 @@ func main() {
 
 	// Initialize handlers
 	serversHandler := handlers.NewServersHandler(registryURL, proxyCache)
-	passthroughHandler, err := handlers.NewPassthroughHandler(registryURL)
+	passthroughHandler, err := handlers.NewPassthroughHandler(registryURL, proxyCache)
 	if err != nil {
 		log.Fatalf("Failed to create passthrough handler: %v", err)
 	}

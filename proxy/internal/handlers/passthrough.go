@@ -2,20 +2,24 @@ package handlers
 
 import (
 	"io"
+	"log"
 	"net/http"
 	"net/http/httputil"
 	"net/url"
 	"strings"
+
+	"github.com/veriteknik/registry-proxy/internal/cache"
 )
 
 // PassthroughHandler proxies requests to the upstream registry
 type PassthroughHandler struct {
 	upstreamURL *url.URL
 	proxy       *httputil.ReverseProxy
+	cache       *cache.Cache
 }
 
 // NewPassthroughHandler creates a new passthrough handler
-func NewPassthroughHandler(upstreamURL string) (*PassthroughHandler, error) {
+func NewPassthroughHandler(upstreamURL string, cache *cache.Cache) (*PassthroughHandler, error) {
 	u, err := url.Parse(upstreamURL)
 	if err != nil {
 		return nil, err
@@ -35,6 +39,7 @@ func NewPassthroughHandler(upstreamURL string) (*PassthroughHandler, error) {
 	return &PassthroughHandler{
 		upstreamURL: u,
 		proxy:       proxy,
+		cache:       cache,
 	}, nil
 }
 
@@ -83,6 +88,15 @@ func (h *PassthroughHandler) ProxySpecificEndpoint() http.HandlerFunc {
 			return
 		}
 		defer resp.Body.Close()
+
+		// Check if this is a successful publish request
+		if r.Method == http.MethodPost && r.URL.Path == "/v0/publish" && resp.StatusCode == http.StatusCreated {
+			// Clear cache on successful publish
+			if h.cache != nil {
+				h.cache.Clear()
+				log.Printf("Cache cleared after successful publish to %s", r.URL.Path)
+			}
+		}
 
 		// Copy response headers
 		for key, values := range resp.Header {
