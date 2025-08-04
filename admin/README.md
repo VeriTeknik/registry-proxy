@@ -1,0 +1,170 @@
+# MCP Registry Admin Interface
+
+A secure, internal-only admin interface for managing MCP servers in the registry.
+
+## Features
+
+- 🔐 JWT-based authentication
+- 📝 Full CRUD operations for servers
+- 🏷️ Status management (active/deprecated)
+- 📊 Audit logging for all operations
+- 🎨 Clean, responsive UI with Tailwind CSS
+- 🐳 Docker deployment with Traefik integration
+- 🔒 HTTPS-only access with security headers
+
+## Architecture
+
+This admin service is **completely separate** from the main registry:
+- Runs as independent Docker container
+- Direct MongoDB access (no registry API dependency)
+- Won't be affected by upstream registry updates
+- Separate codebase outside the registry submodule
+
+## Quick Start
+
+### 1. Configure Environment
+
+Copy `.env.example` to `.env` and update:
+
+```bash
+cp .env.example .env
+```
+
+**Important:** Change the default password!
+
+Generate a new password hash:
+```bash
+# Using htpasswd (requires apache2-utils)
+htpasswd -bnBC 10 "" yourpassword | tr -d ':'
+
+# Or using Go
+go run -e 'import "golang.org/x/crypto/bcrypt"; import "fmt"; hash, _ := bcrypt.GenerateFromPassword([]byte("yourpassword"), 10); fmt.Println(string(hash))'
+```
+
+### 2. Build and Deploy
+
+```bash
+# Build and start the admin service
+docker compose up -d
+
+# Check logs
+docker logs registry-admin
+```
+
+### 3. Access Admin Interface
+
+Navigate to: `https://admin.registry.plugged.in`
+
+Default credentials:
+- Username: `admin`
+- Password: `admin123` (CHANGE THIS!)
+
+## API Endpoints
+
+### Authentication
+- `POST /api/auth/login` - Login with username/password
+- `GET /api/auth/verify` - Verify token validity
+- `POST /api/auth/logout` - Logout (client-side)
+
+### Server Management
+- `GET /api/servers` - List all servers with filters
+- `GET /api/servers/:id` - Get server details
+- `POST /api/servers` - Create new server
+- `PUT /api/servers/:id` - Update server
+- `DELETE /api/servers/:id` - Delete server
+- `PATCH /api/servers/:id/status` - Update status only
+
+### Audit
+- `GET /api/audit-logs` - View audit trail
+
+## Security
+
+### Authentication
+- JWT tokens with 24-hour expiry
+- Bcrypt password hashing
+- Token required for all API endpoints
+
+### Network Security
+- HTTPS-only via Traefik
+- HSTS headers enabled
+- XSS protection headers
+- CORS restricted to admin domain
+
+### Audit Trail
+All operations are logged with:
+- User identification
+- Timestamp
+- Action performed
+- Server affected
+- IP address
+
+## Development
+
+### Local Development
+
+```bash
+# Install dependencies
+go mod download
+
+# Run locally (requires MongoDB)
+go run cmd/admin/main.go
+
+# Access at http://localhost:8092
+```
+
+### Project Structure
+
+```
+admin/
+├── cmd/admin/          # Main application entry
+├── internal/
+│   ├── auth/          # JWT authentication
+│   ├── db/            # MongoDB operations
+│   ├── handlers/      # HTTP handlers
+│   ├── middleware/    # Auth & CORS middleware
+│   └── models/        # Data models
+└── web/static/        # Frontend files
+```
+
+## Maintenance
+
+### Backup
+Regular MongoDB backups recommended:
+```bash
+mongodump --db registry --out backup/
+```
+
+### Update Admin Password
+1. Generate new hash (see above)
+2. Update `.env` file
+3. Restart container: `docker compose restart`
+
+### View Logs
+```bash
+# Application logs
+docker logs registry-admin -f
+
+# Audit logs via UI or MongoDB
+mongo registry --eval "db.audit_logs.find().sort({timestamp: -1}).limit(10)"
+```
+
+## Troubleshooting
+
+### Cannot Login
+- Check password hash in `.env`
+- Verify JWT_SECRET is set
+- Check container logs
+
+### MongoDB Connection Failed
+- Ensure MongoDB is running
+- Check network connectivity
+- Verify MONGODB_URL in `.env`
+
+### Traefik Routing Issues
+- Check DNS for admin.registry.plugged.in
+- Verify Traefik labels in docker-compose.yml
+- Check Traefik logs: `docker logs traefik`
+
+## License
+
+Internal use only. Part of the plugged.in MCP Registry infrastructure.

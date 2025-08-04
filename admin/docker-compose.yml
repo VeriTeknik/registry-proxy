@@ -1,0 +1,57 @@
+version: '3.8'
+
+networks:
+  default:
+    external:
+      name: pluggedin-main
+  traefik:
+    external: true
+
+services:
+  admin:
+    build: .
+    container_name: registry-admin
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      - ADMIN_PORT=8092
+      - MONGODB_URL=mongodb://mongodb:27017
+      - MONGODB_DATABASE=mcp-registry
+    networks:
+      - default
+      - traefik
+    labels:
+      # Enable Traefik
+      - "traefik.enable=true"
+      - "traefik.docker.network=traefik"
+      
+      # HTTPS Router
+      - "traefik.http.routers.admin-secure.rule=Host(`admin.registry.plugged.in`)"
+      - "traefik.http.routers.admin-secure.entrypoints=websecure"
+      - "traefik.http.routers.admin-secure.tls=true"
+      - "traefik.http.routers.admin-secure.tls.certresolver=letsencrypt"
+      - "traefik.http.routers.admin-secure.service=admin"
+      - "traefik.http.routers.admin-secure.priority=20"
+      
+      # Service
+      - "traefik.http.services.admin.loadbalancer.server.port=8092"
+      
+      # Security Headers Middleware
+      - "traefik.http.routers.admin-secure.middlewares=admin-security,admin-auth-check"
+      
+      # Security Headers
+      - "traefik.http.middlewares.admin-security.headers.browserXssFilter=true"
+      - "traefik.http.middlewares.admin-security.headers.contentTypeNosniff=true"
+      - "traefik.http.middlewares.admin-security.headers.frameDeny=true"
+      - "traefik.http.middlewares.admin-security.headers.sslRedirect=true"
+      - "traefik.http.middlewares.admin-security.headers.stsSeconds=31536000"
+      - "traefik.http.middlewares.admin-security.headers.stsIncludeSubdomains=true"
+      - "traefik.http.middlewares.admin-security.headers.stsPreload=true"
+      - "traefik.http.middlewares.admin-security.headers.forceSTSHeader=true"
+      
+      # CORS for admin only
+      - "traefik.http.middlewares.admin-auth-check.headers.accessControlAllowOriginList=https://admin.registry.plugged.in"
+      - "traefik.http.middlewares.admin-auth-check.headers.accessControlAllowMethods=GET,POST,PUT,DELETE,OPTIONS,PATCH"
+      - "traefik.http.middlewares.admin-auth-check.headers.accessControlAllowHeaders=*"
+      - "traefik.http.middlewares.admin-auth-check.headers.accessControlMaxAge=100"

@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Admin Dashboard - MCP Registry</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdn.datatables.net/1.13.7/css/jquery.dataTables.min.css">
+    <script src="https://code.jquery.com/jquery-3.7.0.min.js"></script>
+    <script src="https://cdn.datatables.net/1.13.7/js/jquery.dataTables.min.js"></script>
+</head>
+<body class="bg-gray-100">
+    <!-- Header -->
+    <nav class="bg-white shadow-lg">
+        <div class="max-w-7xl mx-auto px-4">
+            <div class="flex justify-between h-16">
+                <div class="flex items-center">
+                    <h1 class="text-xl font-semibold">MCP Registry Admin</h1>
+                </div>
+                <div class="flex items-center space-x-4">
+                    <button onclick="showAuditLogs()" class="text-gray-600 hover:text-gray-900">Audit Logs</button>
+                    <button onclick="logout()" class="bg-red-500 hover:bg-red-700 text-white font-bold py-2 px-4 rounded">
+                        Logout
+                    </button>
+                </div>
+            </div>
+        </div>
+    </nav>
+
+    <!-- Main Content -->
+    <div class="max-w-7xl mx-auto px-4 py-8">
+        <!-- Stats -->
+        <div class="grid grid-cols-3 gap-4 mb-8">
+            <div class="bg-white p-6 rounded-lg shadow">
+                <div class="text-2xl font-bold" id="total-servers">0</div>
+                <div class="text-gray-600">Total Servers</div>
+            </div>
+            <div class="bg-white p-6 rounded-lg shadow">
+                <div class="text-2xl font-bold text-green-600" id="active-servers">0</div>
+                <div class="text-gray-600">Active Servers</div>
+            </div>
+            <div class="bg-white p-6 rounded-lg shadow">
+                <div class="text-2xl font-bold text-yellow-600" id="deprecated-servers">0</div>
+                <div class="text-gray-600">Deprecated Servers</div>
+            </div>
+        </div>
+
+        <!-- Servers Table -->
+        <div class="bg-white p-6 rounded-lg shadow">
+            <div class="flex justify-between items-center mb-4">
+                <h2 class="text-lg font-semibold">Servers</h2>
+                <button onclick="showAddServerModal()" 
+                        class="bg-green-500 hover:bg-green-700 text-white font-bold py-2 px-4 rounded">
+                    Add Server
+                </button>
+            </div>
+            
+            <table id="servers-table" class="w-full">
+                <thead>
+                    <tr>
+                        <th>Name</th>
+                        <th>Description</th>
+                        <th>Status</th>
+                        <th>Version</th>
+                        <th>Registry</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody></tbody>
+            </table>
+        </div>
+    </div>
+
+    <!-- Edit/Add Server Modal -->
+    <div id="server-modal" class="hidden fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full">
+        <div class="relative top-20 mx-auto p-5 border w-3/4 shadow-lg rounded-md bg-white">
+            <div class="mt-3">
+                <h3 class="text-lg font-medium text-gray-900" id="modal-title">Add Server</h3>
+                <form id="server-form" class="mt-4">
+                    <div class="grid grid-cols-2 gap-4">
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700">Name</label>
+                            <input type="text" id="server-name" required
+                                   class="mt-1 block w-full rounded-md border-gray-300 shadow-sm">
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700">Status</label>
+                            <select id="server-status" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm">
+                                <option value="active">Active</option>
+                                <option value="deprecated">Deprecated</option>
+                            </select>
+                        </div>
+                        <div class="col-span-2">
+                            <label class="block text-sm font-medium text-gray-700">Description</label>
+                            <textarea id="server-description" rows="2" required
+                                      class="mt-1 block w-full rounded-md border-gray-300 shadow-sm"></textarea>
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700">Repository URL</label>
+                            <input type="url" id="server-repo-url" required
+                                   class="mt-1 block w-full rounded-md border-gray-300 shadow-sm">
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700">Version</label>
+                            <input type="text" id="server-version" required
+                                   class="mt-1 block w-full rounded-md border-gray-300 shadow-sm">
+                        </div>
+                        <div class="col-span-2">
+                            <label class="block text-sm font-medium text-gray-700">Packages (JSON)</label>
+                            <textarea id="server-packages" rows="4"
+                                      class="mt-1 block w-full rounded-md border-gray-300 shadow-sm font-mono text-sm"
+                                      placeholder='[{"registry_name": "npm", "name": "package-name", "version": "1.0.0"}]'></textarea>
+                        </div>
+                    </div>
+                    <div class="mt-4 flex justify-end space-x-2">
+                        <button type="button" onclick="closeModal()"
+                                class="bg-gray-300 hover:bg-gray-400 text-gray-800 font-bold py-2 px-4 rounded">
+                            Cancel
+                        </button>
+                        <button type="submit"
+                                class="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded">
+                            Save
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- Audit Logs Modal -->
+    <div id="audit-modal" class="hidden fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full">
+        <div class="relative top-20 mx-auto p-5 border w-3/4 shadow-lg rounded-md bg-white">
+            <div class="mt-3">
+                <h3 class="text-lg font-medium text-gray-900">Audit Logs</h3>
+                <div class="mt-4 max-h-96 overflow-y-auto">
+                    <table class="w-full">
+                        <thead>
+                            <tr class="border-b">
+                                <th class="text-left p-2">Time</th>
+                                <th class="text-left p-2">User</th>
+                                <th class="text-left p-2">Action</th>
+                                <th class="text-left p-2">Details</th>
+                            </tr>
+                        </thead>
+                        <tbody id="audit-logs-body"></tbody>
+                    </table>
+                </div>
+                <div class="mt-4 flex justify-end">
+                    <button onclick="closeAuditModal()"
+                            class="bg-gray-300 hover:bg-gray-400 text-gray-800 font-bold py-2 px-4 rounded">
+                        Close
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="/js/admin.js"></script>
+</body>
+</html>
