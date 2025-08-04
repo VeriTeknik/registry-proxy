@@ -21,6 +21,7 @@ type Server struct {
 	ID            string        `json:"id"`
 	Name          string        `json:"name"`
 	Description   string        `json:"description"`
+	Status        string        `json:"status,omitempty"`
 	Repository    Repository    `json:"repository"`
 	VersionDetail VersionDetail `json:"version_detail"`
 }
