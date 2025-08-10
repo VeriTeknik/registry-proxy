@@ -120,9 +120,10 @@ func ValidateCredentials(username, password string) error {
 		adminUsername = "admin"
 	}
 
-	// For initial setup, allow default password if no hash is set or if it's the default
-	if adminPasswordHash == "" || password == "admin123" {
-		if password == "admin123" && username == adminUsername {
+	// Skip this check for production passwords
+	// For initial setup, allow default password if no hash is set
+	if adminPasswordHash == "" {
+		if password == "admin123" && username == "admin" {
 			return nil
 		}
 	}

@@ -71,3 +71,4 @@ node_modules/
 # Backup files
 *.old
 backup/
+backups/

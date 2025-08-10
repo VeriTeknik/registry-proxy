@@ -62,14 +62,14 @@ async function apiRequest(url, options = {}) {
 // Server management functions
 async function loadServers() {
     try {
-        const response = await apiRequest('/api/servers?limit=100');
+        const response = await apiRequest('/api/servers?limit=1000');
         const data = await response.json();
         
         // Update stats
         const servers = data.servers || [];
         document.getElementById('total-servers').textContent = servers.length;
         document.getElementById('active-servers').textContent = 
-            servers.filter(s => s.status === 'active').length;
+            servers.filter(s => !s.status || s.status === 'active').length;
         document.getElementById('deprecated-servers').textContent = 
             servers.filter(s => s.status === 'deprecated').length;
         
@@ -99,7 +99,7 @@ async function loadServers() {
 }
 
 function formatServerRow(server) {
-    const statusBadge = server.status === 'active' 
+    const statusBadge = (!server.status || server.status === 'active')
         ? '<span class="px-2 py-1 text-xs rounded-full bg-green-100 text-green-800">Active</span>'
         : '<span class="px-2 py-1 text-xs rounded-full bg-yellow-100 text-yellow-800">Deprecated</span>';
     
@@ -109,7 +109,7 @@ function formatServerRow(server) {
     
     const actions = `
         <button onclick="editServer('${server.id}')" class="text-blue-600 hover:text-blue-900 mr-2">Edit</button>
-        <button onclick="toggleStatus('${server.id}', '${server.status}')" class="text-yellow-600 hover:text-yellow-900 mr-2">Toggle</button>
+        <button onclick="toggleStatus('${server.id}', '${server.status || 'active'}')" class="text-yellow-600 hover:text-yellow-900 mr-2">Toggle</button>
         <button onclick="deleteServer('${server.id}')" class="text-red-600 hover:text-red-900">Delete</button>
     `;
     
@@ -210,7 +210,7 @@ document.getElementById('server-form').addEventListener('submit', async (e) => {
 
 // Action functions
 async function toggleStatus(id, currentStatus) {
-    const newStatus = currentStatus === 'active' ? 'deprecated' : 'active';
+    const newStatus = (!currentStatus || currentStatus === 'active') ? 'deprecated' : 'active';
     
     try {
         const response = await apiRequest(`/api/servers/${id}/status`, {
