@@ -2,9 +2,12 @@ package handlers
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"strconv"
+	"strings"
 
+	"github.com/google/uuid"
 	"github.com/gorilla/mux"
 	"github.com/pluggedin/registry-admin/internal/db"
 	"github.com/pluggedin/registry-admin/internal/middleware"
@@ -278,4 +281,191 @@ func (h *ServersHandler) GetAuditLogs(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(logs)
+}
+
+// ImportServers handles POST /api/servers/import
+func (h *ServersHandler) ImportServers(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var req models.ImportRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	response := models.ImportResponse{
+		Success: []models.ImportResult{},
+		Failed:  []models.ImportResult{},
+	}
+
+	user := middleware.GetUserFromContext(r.Context())
+
+	for _, server := range req.Servers {
+		// Check if server exists
+		if !req.Options.UpdateExisting {
+			exists, _ := h.ops.ServerExists(r.Context(), server.Name)
+			if exists {
+				if req.Options.SkipExisting {
+					continue
+				}
+				response.Failed = append(response.Failed, models.ImportResult{
+					Name:  server.Name,
+					Error: "Server already exists",
+				})
+				continue
+			}
+		}
+
+		// Generate ID if not provided
+		if server.ID == "" {
+			server.ID = uuid.New().String()
+		}
+
+		// Create or update server
+		if req.Options.UpdateExisting {
+			if err := h.ops.UpdateServer(r.Context(), server.ID, &server); err != nil {
+				response.Failed = append(response.Failed, models.ImportResult{
+					Name:  server.Name,
+					Error: err.Error(),
+				})
+			} else {
+				response.Success = append(response.Success, models.ImportResult{
+					Name: server.Name,
+					ID:   server.ID,
+				})
+				
+				// Log audit entry
+				h.ops.LogAuditEntry(r.Context(), &models.AuditLog{
+					User:     user,
+					Action:   "UPDATE_SERVER",
+					ServerID: server.ID,
+					Details:  "Updated server via import: " + server.Name,
+					IP:       r.RemoteAddr,
+				})
+			}
+		} else {
+			if err := h.ops.CreateServer(r.Context(), &server); err != nil {
+				response.Failed = append(response.Failed, models.ImportResult{
+					Name:  server.Name,
+					Error: err.Error(),
+				})
+			} else {
+				response.Success = append(response.Success, models.ImportResult{
+					Name: server.Name,
+					ID:   server.ID,
+				})
+				
+				// Log audit entry
+				h.ops.LogAuditEntry(r.Context(), &models.AuditLog{
+					User:     user,
+					Action:   "CREATE_SERVER",
+					ServerID: server.ID,
+					Details:  "Created server via import: " + server.Name,
+					IP:       r.RemoteAddr,
+				})
+			}
+		}
+	}
+
+	response.Summary = models.ImportSummary{
+		Total:   len(req.Servers),
+		Success: len(response.Success),
+		Failed:  len(response.Failed),
+	}
+
+	// Log summary audit entry
+	h.ops.LogAuditEntry(r.Context(), &models.AuditLog{
+		User:    user,
+		Action:  "BATCH_IMPORT",
+		Details: fmt.Sprintf("Imported %d/%d servers successfully", response.Summary.Success, response.Summary.Total),
+		IP:      r.RemoteAddr,
+	})
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(response)
+}
+
+// ValidateServer handles POST /api/servers/validate
+func (h *ServersHandler) ValidateServer(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var server models.ServerDetail
+	if err := json.NewDecoder(r.Body).Decode(&server); err != nil {
+		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	response := models.ValidationResponse{Valid: true}
+	
+	// Basic validation
+	var errors []string
+	
+	// Required fields
+	if server.Name == "" {
+		errors = append(errors, "Name is required")
+	}
+	if server.Description == "" {
+		errors = append(errors, "Description is required")
+	}
+	if server.VersionDetail.Version == "" {
+		errors = append(errors, "Version is required")
+	}
+	
+	// Repository validation
+	if server.Repository.URL != "" {
+		if server.Repository.Source != "github" {
+			errors = append(errors, "Repository source must be 'github'")
+		}
+		if !strings.Contains(server.Repository.URL, "github.com") {
+			errors = append(errors, "Repository URL must be a GitHub URL")
+		}
+	}
+	
+	// Package validation
+	for i, pkg := range server.Packages {
+		// Check registry name
+		validRegistries := map[string]bool{
+			"npm":    true,
+			"pypi":   true,
+			"docker": true,
+			"nuget":  true,
+		}
+		if !validRegistries[pkg.RegistryName] {
+			errors = append(errors, fmt.Sprintf("Package %d: Invalid registry name '%s'", i, pkg.RegistryName))
+		}
+		
+		// Check runtime hint
+		if pkg.RuntimeHint != "" {
+			validHints := map[string]bool{
+				"npx":    true,
+				"uvx":    true,
+				"docker": true,
+				"dnx":    true,
+			}
+			if !validHints[pkg.RuntimeHint] {
+				errors = append(errors, fmt.Sprintf("Package %d: Invalid runtime hint '%s'", i, pkg.RuntimeHint))
+			}
+		}
+		
+		if pkg.Name == "" {
+			errors = append(errors, fmt.Sprintf("Package %d: Name is required", i))
+		}
+		if pkg.Version == "" {
+			errors = append(errors, fmt.Sprintf("Package %d: Version is required", i))
+		}
+	}
+	
+	if len(errors) > 0 {
+		response.Valid = false
+		response.Errors = errors
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(response)
 }

@@ -49,10 +49,16 @@
         <div class="bg-white p-6 rounded-lg shadow">
             <div class="flex justify-between items-center mb-4">
                 <h2 class="text-lg font-semibold">Servers</h2>
-                <button onclick="showAddServerModal()" 
-                        class="bg-green-500 hover:bg-green-700 text-white font-bold py-2 px-4 rounded">
-                    Add Server
-                </button>
+                <div class="flex space-x-2">
+                    <button onclick="showImportModal()" 
+                            class="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded">
+                        Import MCP Config
+                    </button>
+                    <button onclick="showAddServerModal()" 
+                            class="bg-green-500 hover:bg-green-700 text-white font-bold py-2 px-4 rounded">
+                        Add Server
+                    </button>
+                </div>
             </div>
             
             <table id="servers-table" class="w-full">
@@ -159,6 +165,96 @@
                             class="bg-gray-300 hover:bg-gray-400 text-gray-800 font-bold py-2 px-4 rounded">
                         Close
                     </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Import MCP Config Modal -->
+    <div id="import-modal" class="hidden fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full">
+        <div class="relative top-10 mx-auto p-5 border w-11/12 max-w-6xl shadow-lg rounded-md bg-white" style="max-height: 90vh; overflow-y: auto;">
+            <div class="mt-3">
+                <h3 class="text-lg font-medium text-gray-900">Import MCP Config</h3>
+                
+                <!-- Step 1: Paste Config -->
+                <div id="import-step-1" class="mt-4">
+                    <label class="block text-sm font-medium text-gray-700 mb-2">
+                        Paste your Claude Desktop MCP config (claude_desktop_config.json):
+                    </label>
+                    <textarea id="import-config-input" 
+                              rows="10"
+                              class="w-full rounded-md border-gray-300 shadow-sm font-mono text-sm"
+                              style="min-height: 200px; resize: vertical; padding: 10px;"
+                              placeholder='{
+  "mcpServers": {
+    "filesystem": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-filesystem", "/path"],
+      "env": { "API_KEY": "value" }
+    }
+  }
+}'></textarea>
+                    <div id="import-parse-error" class="hidden mt-2 text-red-600 text-sm"></div>
+                    <div class="mt-4 flex justify-end space-x-2">
+                        <button onclick="closeImportModal()"
+                                class="bg-gray-300 hover:bg-gray-400 text-gray-800 font-bold py-2 px-4 rounded">
+                            Cancel
+                        </button>
+                        <button onclick="parseImportConfig()"
+                                class="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded">
+                            Parse Config
+                        </button>
+                    </div>
+                </div>
+                
+                <!-- Step 2: Review and Edit -->
+                <div id="import-step-2" class="hidden mt-4">
+                    <div class="mb-4">
+                        <p class="text-sm text-gray-600">
+                            Review the detected servers below. Fill in any missing required fields (marked with <span class="text-red-500">*</span>).
+                        </p>
+                    </div>
+                    
+                    <div id="import-servers-list" class="space-y-4 max-h-96 overflow-y-auto">
+                        <!-- Dynamically populated server cards -->
+                    </div>
+                    
+                    <div id="import-validation-errors" class="hidden mt-4 p-3 bg-red-100 rounded">
+                        <p class="text-red-700 font-semibold">Validation Errors:</p>
+                        <ul id="import-errors-list" class="list-disc list-inside text-red-600 text-sm mt-2"></ul>
+                    </div>
+                    
+                    <div class="mt-6 flex justify-between">
+                        <button onclick="backToImportStep1()"
+                                class="bg-gray-300 hover:bg-gray-400 text-gray-800 font-bold py-2 px-4 rounded">
+                            Back
+                        </button>
+                        <div class="space-x-2">
+                            <button onclick="validateImport()"
+                                    class="bg-yellow-500 hover:bg-yellow-600 text-white font-bold py-2 px-4 rounded">
+                                Validate
+                            </button>
+                            <button onclick="executeImport()"
+                                    class="bg-green-500 hover:bg-green-700 text-white font-bold py-2 px-4 rounded">
+                                Import Selected
+                            </button>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Step 3: Results -->
+                <div id="import-step-3" class="hidden mt-4">
+                    <div class="p-4 bg-gray-100 rounded">
+                        <h4 class="font-semibold mb-2">Import Results</h4>
+                        <div id="import-results-summary"></div>
+                        <div id="import-results-details" class="mt-4 space-y-2"></div>
+                    </div>
+                    <div class="mt-4 flex justify-end">
+                        <button onclick="closeImportModal()"
+                                class="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded">
+                            Done
+                        </button>
+                    </div>
                 </div>
             </div>
         </div>

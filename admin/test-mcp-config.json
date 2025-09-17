@@ -1,0 +1,37 @@
+{
+  "mcpServers": {
+    "filesystem": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "@modelcontextprotocol/server-filesystem",
+        "/home/user/Documents",
+        "/home/user/Downloads"
+      ],
+      "env": {
+        "LOG_LEVEL": "info"
+      }
+    },
+    "weather": {
+      "command": "uvx",
+      "args": ["weather-mcp-server", "--port", "3000"],
+      "env": {
+        "WEATHER_API_KEY": "${input:weatherApiKey}"
+      }
+    },
+    "github": {
+      "command": "node",
+      "args": ["/path/to/github-mcp/dist/index.js"],
+      "env": {
+        "GITHUB_TOKEN": "${input:githubToken}"
+      }
+    },
+    "docker-postgres": {
+      "command": "docker",
+      "args": ["run", "-v", "/data:/var/lib/postgresql/data", "postgres:15"],
+      "env": {
+        "POSTGRES_PASSWORD": "${input:password}"
+      }
+    }
+  }
+}

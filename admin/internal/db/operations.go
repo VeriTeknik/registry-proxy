@@ -86,6 +86,18 @@ func (o *Operations) GetServer(ctx context.Context, id string) (*models.ServerDe
 	return &server, nil
 }
 
+// ServerExists checks if a server with the given name exists
+func (o *Operations) ServerExists(ctx context.Context, name string) (bool, error) {
+	collection := o.db.GetServersCollection()
+	
+	count, err := collection.CountDocuments(ctx, bson.M{"name": name})
+	if err != nil {
+		return false, err
+	}
+	
+	return count > 0, nil
+}
+
 // CreateServer creates a new server
 func (o *Operations) CreateServer(ctx context.Context, server *models.ServerDetail) error {
 	collection := o.db.GetServersCollection()

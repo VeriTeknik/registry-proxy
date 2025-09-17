@@ -101,3 +101,43 @@ type LoginResponse struct {
 type ErrorResponse struct {
 	Error string `json:"error"`
 }
+
+// ImportRequest represents a batch import request
+type ImportRequest struct {
+	Servers []ServerDetail `json:"servers"`
+	Options ImportOptions  `json:"options"`
+}
+
+// ImportOptions represents import configuration options
+type ImportOptions struct {
+	SkipExisting     bool `json:"skip_existing"`
+	UpdateExisting   bool `json:"update_existing"`
+	ValidatePackages bool `json:"validate_packages"`
+}
+
+// ImportResult represents the result of importing a single server
+type ImportResult struct {
+	Name  string `json:"name"`
+	ID    string `json:"id,omitempty"`
+	Error string `json:"error,omitempty"`
+}
+
+// ImportResponse represents the response from batch import
+type ImportResponse struct {
+	Success []ImportResult `json:"success"`
+	Failed  []ImportResult `json:"failed"`
+	Summary ImportSummary  `json:"summary"`
+}
+
+// ImportSummary represents import statistics
+type ImportSummary struct {
+	Total   int `json:"total"`
+	Success int `json:"success"`
+	Failed  int `json:"failed"`
+}
+
+// ValidationResponse represents schema validation result
+type ValidationResponse struct {
+	Valid  bool     `json:"valid"`
+	Errors []string `json:"errors,omitempty"`
+}
