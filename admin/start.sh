@@ -13,6 +13,4 @@ docker compose -f docker-compose.prod.yml up -d
 echo "Admin service started!"
 echo "Access at: https://admin.registry.plugged.in/"
 echo ""
-echo "Admin credentials:"
-echo "Username: ckaraca"
-echo "Password: Helios4victory"
+echo "Note: Admin credentials are configured in .env file"
