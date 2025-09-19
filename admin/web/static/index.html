@@ -45,16 +45,44 @@
             </div>
         </div>
 
+        <!-- Sync Section -->
+        <div class="bg-white p-6 rounded-lg shadow mb-6">
+            <div class="flex justify-between items-center">
+                <div>
+                    <h2 class="text-lg font-semibold">Official Registry Sync</h2>
+                    <p class="text-sm text-gray-600 mt-1">Sync servers with the official MCP Registry</p>
+                </div>
+                <div class="flex items-center space-x-4">
+                    <div id="sync-status" class="hidden">
+                        <span class="text-sm text-gray-600">Last synced: <span id="last-sync-time">Never</span></span>
+                    </div>
+                    <button onclick="showSyncModal()"
+                            class="bg-purple-500 hover:bg-purple-700 text-white font-bold py-2 px-4 rounded flex items-center">
+                        <svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path>
+                        </svg>
+                        Sync with Official Registry
+                    </button>
+                </div>
+            </div>
+            <div id="sync-progress" class="hidden mt-4">
+                <div class="bg-gray-200 rounded-full h-2">
+                    <div id="sync-progress-bar" class="bg-purple-600 h-2 rounded-full transition-all" style="width: 0%"></div>
+                </div>
+                <p class="text-sm text-gray-600 mt-2" id="sync-progress-text">Initializing sync...</p>
+            </div>
+        </div>
+
         <!-- Servers Table -->
         <div class="bg-white p-6 rounded-lg shadow">
             <div class="flex justify-between items-center mb-4">
                 <h2 class="text-lg font-semibold">Servers</h2>
                 <div class="flex space-x-2">
-                    <button onclick="showImportModal()" 
+                    <button onclick="showImportModal()"
                             class="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded">
                         Import MCP Config
                     </button>
-                    <button onclick="showAddServerModal()" 
+                    <button onclick="showAddServerModal()"
                             class="bg-green-500 hover:bg-green-700 text-white font-bold py-2 px-4 rounded">
                         Add Server
                     </button>
@@ -164,6 +192,82 @@
                     <button onclick="closeAuditModal()"
                             class="bg-gray-300 hover:bg-gray-400 text-gray-800 font-bold py-2 px-4 rounded">
                         Close
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Sync Modal -->
+    <div id="sync-modal" class="hidden fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full">
+        <div class="relative top-10 mx-auto p-5 border w-11/12 max-w-4xl shadow-lg rounded-md bg-white" style="max-height: 90vh; overflow-y: auto;">
+            <div class="mt-3">
+                <h3 class="text-lg font-medium text-gray-900">Sync with Official MCP Registry</h3>
+
+                <!-- Sync Options -->
+                <div class="mt-4 space-y-4">
+                    <div class="bg-blue-50 border border-blue-200 rounded p-4">
+                        <h4 class="font-medium text-blue-900 mb-2">Sync Options</h4>
+                        <div class="space-y-2">
+                            <label class="flex items-center">
+                                <input type="checkbox" id="sync-dry-run" checked class="mr-2">
+                                <span class="text-sm">Preview mode (dry run - no changes will be made)</span>
+                            </label>
+                            <label class="flex items-center">
+                                <input type="checkbox" id="sync-update-existing" class="mr-2">
+                                <span class="text-sm">Update existing servers if newer version available</span>
+                            </label>
+                            <label class="flex items-center">
+                                <input type="checkbox" id="sync-add-new" checked class="mr-2">
+                                <span class="text-sm">Add new servers from official registry</span>
+                            </label>
+                        </div>
+                    </div>
+
+                    <!-- Sync Results Preview -->
+                    <div id="sync-results" class="hidden">
+                        <h4 class="font-medium text-gray-900 mb-2">Sync Preview Results</h4>
+                        <div class="bg-gray-50 border border-gray-200 rounded p-4">
+                            <div class="grid grid-cols-3 gap-4 mb-4">
+                                <div class="text-center">
+                                    <div class="text-2xl font-bold text-green-600" id="sync-new-count">0</div>
+                                    <div class="text-sm text-gray-600">New Servers</div>
+                                </div>
+                                <div class="text-center">
+                                    <div class="text-2xl font-bold text-blue-600" id="sync-update-count">0</div>
+                                    <div class="text-sm text-gray-600">Updates Available</div>
+                                </div>
+                                <div class="text-center">
+                                    <div class="text-2xl font-bold text-gray-600" id="sync-unchanged-count">0</div>
+                                    <div class="text-sm text-gray-600">Unchanged</div>
+                                </div>
+                            </div>
+
+                            <!-- Detailed Results -->
+                            <div id="sync-details" class="space-y-2 max-h-60 overflow-y-auto">
+                                <!-- Dynamically populated -->
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Error Display -->
+                    <div id="sync-error" class="hidden bg-red-50 border border-red-200 rounded p-4">
+                        <p class="text-red-800 text-sm"></p>
+                    </div>
+                </div>
+
+                <!-- Modal Actions -->
+                <div class="mt-6 flex justify-end space-x-2">
+                    <button onclick="closeSyncModal()"
+                            class="bg-gray-300 hover:bg-gray-400 text-gray-800 font-bold py-2 px-4 rounded">
+                        Cancel
+                    </button>
+                    <button id="sync-preview-btn" onclick="previewSync()"
+                            class="bg-purple-500 hover:bg-purple-700 text-white font-bold py-2 px-4 rounded">
+                        Preview Sync
+                    </button>
+                    <button id="sync-execute-btn" onclick="executeSync()" class="hidden bg-green-500 hover:bg-green-700 text-white font-bold py-2 px-4 rounded">
+                        Execute Sync
                     </button>
                 </div>
             </div>

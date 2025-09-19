@@ -116,30 +116,22 @@ func ValidateCredentials(username, password string) error {
 	adminUsername := os.Getenv("ADMIN_USERNAME")
 	adminPasswordHash := os.Getenv("ADMIN_PASSWORD_HASH")
 
-	if adminUsername == "" {
-		adminUsername = "admin"
-	}
-
-	// Skip this check for production passwords
-	// For initial setup, allow default password if no hash is set
-	if adminPasswordHash == "" {
-		if password == "admin123" && username == "admin" {
-			return nil
-		}
+	// Ensure credentials are configured
+	if adminUsername == "" || adminPasswordHash == "" {
+		return errors.New("admin credentials not configured")
 	}
 
 	if username != adminUsername {
 		return ErrInvalidCredentials
 	}
 
-	// Try to validate with hash if provided
-	if adminPasswordHash != "" && adminPasswordHash != "''" {
-		// Remove quotes if present
-		adminPasswordHash = strings.Trim(adminPasswordHash, "'\"")
-		if err := CheckPassword(password, adminPasswordHash); err == nil {
-			return nil
-		}
+	// Remove quotes if present
+	adminPasswordHash = strings.Trim(adminPasswordHash, "'\"")
+
+	// Validate password against hash
+	if err := CheckPassword(password, adminPasswordHash); err != nil {
+		return ErrInvalidCredentials
 	}
 
-	return ErrInvalidCredentials
+	return nil
 }

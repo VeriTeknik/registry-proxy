@@ -1,0 +1,39 @@
+version: '3.8'
+
+networks:
+  traefik:
+    external: true
+  registry_default:
+    external: true
+
+services:
+  admin:
+    image: registry-admin:latest
+    container_name: registry-admin
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      - MONGODB_URL=mongodb://mongodb:27017
+      - MONGODB_DATABASE=mcp-registry
+      - ADMIN_PORT=8092
+    networks:
+      - traefik
+      - registry_default
+    labels:
+      - "traefik.enable=true"
+      - "traefik.docker.network=traefik"
+
+      # HTTP Router
+      - "traefik.http.routers.admin.rule=Host(`admin.registry.plugged.in`)"
+      - "traefik.http.routers.admin.entrypoints=websecure"
+      - "traefik.http.routers.admin.tls=true"
+      - "traefik.http.routers.admin.tls.certresolver=letsencrypt"
+
+      # Service
+      - "traefik.http.services.admin.loadbalancer.server.port=8092"
+
+      # Security headers
+      - "traefik.http.middlewares.admin-headers.headers.customresponseheaders.X-Frame-Options=SAMEORIGIN"
+      - "traefik.http.middlewares.admin-headers.headers.customresponseheaders.X-Content-Type-Options=nosniff"
+      - "traefik.http.routers.admin.middlewares=admin-headers"

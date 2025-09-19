@@ -697,6 +697,157 @@ function backToImportStep1() {
     document.getElementById('import-step-2').classList.add('hidden');
 }
 
+// Sync functionality
+async function showSyncModal() {
+    document.getElementById('sync-modal').classList.remove('hidden');
+    // Reset modal state
+    document.getElementById('sync-results').classList.add('hidden');
+    document.getElementById('sync-error').classList.add('hidden');
+    document.getElementById('sync-preview-btn').classList.remove('hidden');
+    document.getElementById('sync-execute-btn').classList.add('hidden');
+    document.getElementById('sync-dry-run').checked = true;
+}
+
+function closeSyncModal() {
+    document.getElementById('sync-modal').classList.add('hidden');
+}
+
+async function previewSync() {
+    const dryRun = document.getElementById('sync-dry-run').checked;
+    const updateExisting = document.getElementById('sync-update-existing').checked;
+    const addNew = document.getElementById('sync-add-new').checked;
+
+    const button = document.getElementById('sync-preview-btn');
+    const originalText = button.innerText;
+    button.disabled = true;
+    button.innerText = 'Loading...';
+
+    try {
+        const response = await apiRequest('/api/sync/preview', {
+            method: 'POST',
+            body: JSON.stringify({
+                dry_run: true,
+                update_existing: updateExisting,
+                add_new: addNew
+            })
+        });
+
+        if (response.ok) {
+            const result = await response.json();
+            displaySyncResults(result);
+
+            // Show execute button if not in dry-run mode
+            if (!dryRun) {
+                document.getElementById('sync-execute-btn').classList.remove('hidden');
+            }
+        } else {
+            const error = await response.text();
+            showSyncError(`Failed to preview sync: ${error}`);
+        }
+    } catch (error) {
+        showSyncError(`Error: ${error.message}`);
+    } finally {
+        button.disabled = false;
+        button.innerText = originalText;
+    }
+}
+
+async function executeSync() {
+    const updateExisting = document.getElementById('sync-update-existing').checked;
+    const addNew = document.getElementById('sync-add-new').checked;
+
+    const button = document.getElementById('sync-execute-btn');
+    const originalText = button.innerText;
+    button.disabled = true;
+    button.innerText = 'Syncing...';
+
+    // Show progress
+    document.getElementById('sync-progress').classList.remove('hidden');
+    updateSyncProgress(0, 'Starting sync...');
+
+    try {
+        const response = await apiRequest('/api/sync/execute', {
+            method: 'POST',
+            body: JSON.stringify({
+                dry_run: false,
+                update_existing: updateExisting,
+                add_new: addNew
+            })
+        });
+
+        if (response.ok) {
+            const result = await response.json();
+            updateSyncProgress(100, 'Sync completed!');
+
+            // Refresh the servers table
+            await loadServers();
+
+            // Update last sync time
+            document.getElementById('last-sync-time').innerText = new Date().toLocaleString();
+            document.getElementById('sync-status').classList.remove('hidden');
+
+            setTimeout(() => {
+                closeSyncModal();
+                document.getElementById('sync-progress').classList.add('hidden');
+                alert(`Sync completed! Added: ${result.added}, Updated: ${result.updated}`);
+            }, 2000);
+        } else {
+            const error = await response.text();
+            showSyncError(`Failed to execute sync: ${error}`);
+        }
+    } catch (error) {
+        showSyncError(`Error: ${error.message}`);
+    } finally {
+        button.disabled = false;
+        button.innerText = originalText;
+    }
+}
+
+function displaySyncResults(results) {
+    document.getElementById('sync-new-count').innerText = results.new_servers?.length || 0;
+    document.getElementById('sync-update-count').innerText = results.updates?.length || 0;
+    document.getElementById('sync-unchanged-count').innerText = results.unchanged || 0;
+
+    const detailsDiv = document.getElementById('sync-details');
+    detailsDiv.innerHTML = '';
+
+    // Show new servers
+    if (results.new_servers && results.new_servers.length > 0) {
+        detailsDiv.innerHTML += '<div class="font-medium text-green-700 mb-1">New Servers:</div>';
+        results.new_servers.forEach(server => {
+            detailsDiv.innerHTML += `
+                <div class="ml-4 text-sm text-gray-700">
+                    <span class="font-medium">${server.name}</span> - ${server.description}
+                </div>`;
+        });
+    }
+
+    // Show updates
+    if (results.updates && results.updates.length > 0) {
+        detailsDiv.innerHTML += '<div class="font-medium text-blue-700 mb-1 mt-2">Updates Available:</div>';
+        results.updates.forEach(update => {
+            detailsDiv.innerHTML += `
+                <div class="ml-4 text-sm text-gray-700">
+                    <span class="font-medium">${update.name}</span> -
+                    ${update.current_version} → ${update.new_version}
+                </div>`;
+        });
+    }
+
+    document.getElementById('sync-results').classList.remove('hidden');
+}
+
+function showSyncError(message) {
+    const errorDiv = document.getElementById('sync-error');
+    errorDiv.querySelector('p').innerText = message;
+    errorDiv.classList.remove('hidden');
+}
+
+function updateSyncProgress(percentage, message) {
+    document.getElementById('sync-progress-bar').style.width = `${percentage}%`;
+    document.getElementById('sync-progress-text').innerText = message;
+}
+
 async function validateImport() {
     const validationErrors = [];
     const selectedServers = getSelectedServers();

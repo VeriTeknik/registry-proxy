@@ -7,6 +7,8 @@ A secure, internal-only admin interface for managing MCP servers in the registry
 - 🔐 JWT-based authentication
 - 📝 Full CRUD operations for servers
 - 🏷️ Status management (active/deprecated)
+- 🔄 **Official Registry Sync** - Sync with registry.modelcontextprotocol.io
+- 📥 Batch import from MCP config files
 - 📊 Audit logging for all operations
 - 🎨 Clean, responsive UI with Tailwind CSS
 - 🐳 Docker deployment with Traefik integration
@@ -44,8 +46,12 @@ go run -e 'import "golang.org/x/crypto/bcrypt"; import "fmt"; hash, _ := bcrypt.
 ### 2. Build and Deploy
 
 ```bash
-# Build and start the admin service
-docker compose up -d
+# Quick start with provided script
+./start.sh
+
+# Or manually:
+docker build -t registry-admin:latest .
+docker compose -f docker-compose.prod.yml up -d
 
 # Check logs
 docker logs registry-admin
@@ -55,9 +61,9 @@ docker logs registry-admin
 
 Navigate to: `https://admin.registry.plugged.in`
 
-Default credentials:
-- Username: `admin`
-- Password: `admin123` (CHANGE THIS!)
+Admin credentials:
+- Username: `ckaraca`
+- Password: `Helios4victory`
 
 ## API Endpoints
 
@@ -73,6 +79,14 @@ Default credentials:
 - `PUT /api/servers/:id` - Update server
 - `DELETE /api/servers/:id` - Delete server
 - `PATCH /api/servers/:id/status` - Update status only
+- `POST /api/servers/import` - Batch import servers
+- `POST /api/servers/validate` - Validate server configuration
+
+### Registry Sync
+- `POST /api/sync/preview` - Preview sync changes (dry run)
+- `POST /api/sync/execute` - Execute sync with official registry
+- `GET /api/sync/status` - Get last sync status
+- `GET /api/sync/history` - View sync history
 
 ### Audit
 - `GET /api/audit-logs` - View audit trail
