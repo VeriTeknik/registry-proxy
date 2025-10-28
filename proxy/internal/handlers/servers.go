@@ -246,8 +246,10 @@ func (h *ServersHandler) HandleRefresh(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]interface{}{
+	if err := json.NewEncoder(w).Encode(map[string]interface{}{
 		"message":    "Cache refreshed successfully",
 		"updated_at": h.cache.GetLastUpdate(),
-	})
+	}); err != nil {
+		log.Printf("Error encoding refresh response: %v", err)
+	}
 }

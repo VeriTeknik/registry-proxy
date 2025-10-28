@@ -78,7 +78,7 @@ func (db *DB) UpsertRating(ctx context.Context, serverID, userID string, rating 
 	if err != nil {
 		return fmt.Errorf("failed to begin transaction: %w", err)
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }() // Rollback on error; ignore error if already committed
 
 	// Insert or update rating
 	_, err = tx.ExecContext(ctx, `
@@ -123,7 +123,7 @@ func (db *DB) TrackInstallation(ctx context.Context, serverID, userID, source, v
 	if err != nil {
 		return fmt.Errorf("failed to begin transaction: %w", err)
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }() // Rollback on error; ignore error if already committed
 
 	// Insert installation (or update if exists)
 	_, err = tx.ExecContext(ctx, `

@@ -97,10 +97,12 @@ func (h *RatingsHandler) HandleRate(w http.ResponseWriter, r *http.Request) {
 		log.Printf("Failed to get stats: %v", err)
 		// Don't fail the request, just return success without stats
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]interface{}{
+		if err := json.NewEncoder(w).Encode(map[string]interface{}{
 			"success": true,
 			"message": "Rating saved successfully",
-		})
+		}); err != nil {
+			log.Printf("Error encoding rating response: %v", err)
+		}
 		return
 	}
 
@@ -115,7 +117,9 @@ func (h *RatingsHandler) HandleRate(w http.ResponseWriter, r *http.Request) {
 			"installation_count": installCount,
 		},
 	}
-	json.NewEncoder(w).Encode(response)
+	if err := json.NewEncoder(w).Encode(response); err != nil {
+		log.Printf("Error encoding rating response: %v", err)
+	}
 }
 
 // HandleInstall handles POST /v0/servers/:id/install

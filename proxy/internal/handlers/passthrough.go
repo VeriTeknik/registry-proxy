@@ -113,7 +113,10 @@ func (h *PassthroughHandler) ProxySpecificEndpoint() http.HandlerFunc {
 		w.WriteHeader(resp.StatusCode)
 
 		// Copy response body
-		io.Copy(w, resp.Body)
+		if _, err := io.Copy(w, resp.Body); err != nil {
+			// Log error but can't return it since headers are already sent
+			log.Printf("Error copying response body: %v", err)
+		}
 	}
 }
 
