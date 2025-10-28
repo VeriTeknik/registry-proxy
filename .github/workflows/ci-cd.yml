@@ -9,6 +9,11 @@ on:
       - main
   workflow_dispatch:
 
+permissions:
+  contents: read
+  packages: write
+  deployments: write
+
 env:
   GO_VERSION: '1.23'
 
