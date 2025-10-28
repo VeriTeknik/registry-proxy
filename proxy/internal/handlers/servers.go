@@ -13,6 +13,7 @@ import (
 
 	"github.com/veriteknik/registry-proxy/internal/cache"
 	"github.com/veriteknik/registry-proxy/internal/client"
+	"github.com/veriteknik/registry-proxy/internal/db"
 	"github.com/veriteknik/registry-proxy/internal/models"
 )
 
@@ -20,13 +21,15 @@ import (
 type ServersHandler struct {
 	registryClient *client.RegistryClient
 	cache          *cache.Cache
+	db             *db.DB
 }
 
 // NewServersHandler creates a new servers handler
-func NewServersHandler(registryURL string, cache *cache.Cache) *ServersHandler {
+func NewServersHandler(registryURL string, cache *cache.Cache, database *db.DB) *ServersHandler {
 	return &ServersHandler{
 		registryClient: client.NewRegistryClient(registryURL),
 		cache:          cache,
+		db:             database,
 	}
 }
 
@@ -129,6 +132,21 @@ func (h *ServersHandler) getEnrichedServers(ctx context.Context) ([]models.Enric
 		return nil, fmt.Errorf("fetching servers: %w", err)
 	}
 
+	// Enrich with stats from database
+	if h.db != nil {
+		for i := range servers {
+			rating, ratingCount, installCount, err := h.db.GetServerStats(ctx, servers[i].ID)
+			if err != nil {
+				log.Printf("Warning: Failed to get stats for server %s: %v", servers[i].ID, err)
+				// Continue without stats rather than failing the entire request
+				continue
+			}
+			servers[i].Rating = rating
+			servers[i].RatingCount = ratingCount
+			servers[i].InstallationCount = installCount
+		}
+	}
+
 	// Cache the result
 	h.cache.SetServers(servers)
 
@@ -228,8 +246,10 @@ func (h *ServersHandler) HandleRefresh(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]interface{}{
+	if err := json.NewEncoder(w).Encode(map[string]interface{}{
 		"message":    "Cache refreshed successfully",
 		"updated_at": h.cache.GetLastUpdate(),
-	})
+	}); err != nil {
+		log.Printf("Error encoding refresh response: %v", err)
+	}
 }

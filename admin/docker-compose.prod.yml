@@ -14,8 +14,7 @@ services:
     env_file:
       - .env
     environment:
-      - MONGODB_URL=mongodb://mongodb:27017
-      - MONGODB_DATABASE=mcp-registry
+      - POSTGRES_URL=postgres://mcpregistry:pluggedin2024secure@postgresql:5432/mcp_registry
       - ADMIN_PORT=8092
     networks:
       - traefik

@@ -50,9 +50,11 @@ type SyncResult struct {
 
 // ServerSummary represents a server summary
 type ServerSummary struct {
-	Name        string `json:"name"`
-	Description string `json:"description"`
-	Version     string `json:"version"`
+	Name        string   `json:"name"`
+	Description string   `json:"description"`
+	Version     string   `json:"version"`
+	RepoSource  string   `json:"repo_source"`
+	Types       []string `json:"types"` // Package registry types or remote types
 }
 
 // UpdateSummary represents an update summary
@@ -64,7 +66,58 @@ type UpdateSummary struct {
 
 // OfficialRegistryResponse represents the official registry API response
 type OfficialRegistryResponse struct {
-	Servers []models.ServerDetail `json:"servers"`
+	Servers  []OfficialServerItem `json:"servers"`
+	Metadata RegistryMetadata     `json:"metadata"`
+}
+
+// RegistryMetadata represents pagination metadata
+type RegistryMetadata struct {
+	NextCursor string `json:"nextCursor"`
+	Count      int    `json:"count"`
+}
+
+// OfficialServerItem represents a single server item from the official registry
+type OfficialServerItem struct {
+	Server OfficialServer `json:"server"`
+	Meta   OfficialMeta   `json:"_meta"`
+}
+
+// OfficialServer represents a server from the official registry (with different field names)
+type OfficialServer struct {
+	Schema      string                   `json:"$schema"`
+	Name        string                   `json:"name"`
+	Description string                   `json:"description"`
+	Repository  models.Repository        `json:"repository"`
+	Version     string                   `json:"version"`
+	Packages    []OfficialPackage        `json:"packages,omitempty"`
+	Remotes     []OfficialRemote         `json:"remotes,omitempty"`
+}
+
+// OfficialPackage represents a package from the official registry
+type OfficialPackage struct {
+	RegistryType         string                        `json:"registryType"`
+	Identifier           string                        `json:"identifier"`
+	Transport            map[string]interface{}        `json:"transport,omitempty"`
+	EnvironmentVariables []models.EnvironmentVariable  `json:"environmentVariables,omitempty"`
+}
+
+// OfficialRemote represents a remote from the official registry
+type OfficialRemote struct {
+	Type string `json:"type"`
+	URL  string `json:"url"`
+}
+
+// OfficialMeta represents the metadata from the official registry
+type OfficialMeta struct {
+	Official OfficialMetadata `json:"io.modelcontextprotocol.registry/official"`
+}
+
+// OfficialMetadata represents the official registry metadata
+type OfficialMetadata struct {
+	Status      string `json:"status"`
+	PublishedAt string `json:"publishedAt"`
+	UpdatedAt   string `json:"updatedAt"`
+	IsLatest    bool   `json:"isLatest"`
 }
 
 // PreviewSync handles POST /api/sync/preview
@@ -154,7 +207,7 @@ func (h *SyncHandler) performSync(ctx context.Context, req SyncRequest) (*SyncRe
 		existingMap[existingServers[i].Name] = &existingServers[i]
 	}
 
-	// Process each official server
+	// Process each official server (already filtered to latest versions only)
 	for _, officialServer := range officialServers {
 		existing, exists := existingMap[officialServer.Name]
 
@@ -165,6 +218,8 @@ func (h *SyncHandler) performSync(ctx context.Context, req SyncRequest) (*SyncRe
 					Name:        officialServer.Name,
 					Description: officialServer.Description,
 					Version:     officialServer.VersionDetail.Version,
+					RepoSource:  officialServer.Repository.Source,
+					Types:       extractServerTypes(&officialServer),
 				})
 
 				if !req.DryRun {
@@ -210,19 +265,25 @@ func (h *SyncHandler) performSync(ctx context.Context, req SyncRequest) (*SyncRe
 	return result, nil
 }
 
-// fetchOfficialServers fetches servers from the official registry
-func (h *SyncHandler) fetchOfficialServers(ctx context.Context) ([]models.ServerDetail, error) {
-	url := fmt.Sprintf("%s/v0/servers", h.officialRegistryURL)
+// buildPaginatedURL constructs a URL with pagination parameters
+func (h *SyncHandler) buildPaginatedURL(cursor string, limit int) string {
+	url := fmt.Sprintf("%s/v0/servers?limit=%d", h.officialRegistryURL, limit)
+	if cursor != "" {
+		url = fmt.Sprintf("%s&cursor=%s", url, cursor)
+	}
+	return url
+}
 
+// fetchPage fetches a single page from the official registry API
+func (h *SyncHandler) fetchPage(ctx context.Context, client *http.Client, url string) (*OfficialRegistryResponse, error) {
 	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
 
-	client := &http.Client{Timeout: 30 * time.Second}
 	resp, err := client.Do(req)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to fetch page: %w", err)
 	}
 	defer resp.Body.Close()
 
@@ -233,10 +294,144 @@ func (h *SyncHandler) fetchOfficialServers(ctx context.Context) ([]models.Server
 
 	var registryResp OfficialRegistryResponse
 	if err := json.NewDecoder(resp.Body).Decode(&registryResp); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to decode response: %w", err)
 	}
 
-	return registryResp.Servers, nil
+	return &registryResp, nil
+}
+
+// filterLatestVersions filters server items to include only the latest versions
+func filterLatestVersions(items []OfficialServerItem) []models.ServerDetail {
+	result := make([]models.ServerDetail, 0, len(items))
+	for _, item := range items {
+		if item.Meta.Official.IsLatest {
+			serverDetail := convertOfficialToServerDetail(&item.Server)
+			result = append(result, serverDetail)
+		}
+	}
+	return result
+}
+
+// fetchOfficialServers fetches servers from the official registry with pagination
+func (h *SyncHandler) fetchOfficialServers(ctx context.Context) ([]models.ServerDetail, error) {
+	const maxPages = 100  // Safety limit to prevent infinite loops
+	const pageLimit = 100 // Number of items per page
+
+	allServers := make([]models.ServerDetail, 0)
+	cursor := ""
+	client := &http.Client{Timeout: 30 * time.Second}
+
+	for pageCount := 1; pageCount <= maxPages; pageCount++ {
+		// Fetch a single page
+		url := h.buildPaginatedURL(cursor, pageLimit)
+		registryResp, err := h.fetchPage(ctx, client, url)
+		if err != nil {
+			return nil, err
+		}
+
+		// Filter and append latest versions
+		latestServers := filterLatestVersions(registryResp.Servers)
+		allServers = append(allServers, latestServers...)
+
+		// Check if there are more pages
+		if registryResp.Metadata.NextCursor == "" {
+			break
+		}
+
+		cursor = registryResp.Metadata.NextCursor
+
+		// Safety check: if we hit max pages, return error
+		if pageCount == maxPages {
+			return nil, fmt.Errorf("pagination limit exceeded after %d pages: possible infinite loop or rate limiting issue", maxPages)
+		}
+	}
+
+	return allServers, nil
+}
+
+// convertOfficialToServerDetail converts an OfficialServer to ServerDetail
+func convertOfficialToServerDetail(official *OfficialServer) models.ServerDetail {
+	server := models.ServerDetail{
+		Server: models.Server{
+			Name:        official.Name,
+			Description: official.Description,
+			Repository:  official.Repository,
+			VersionDetail: models.VersionDetail{
+				Version:  official.Version,
+				IsLatest: true,
+			},
+		},
+	}
+
+	// Convert packages
+	for _, officialPkg := range official.Packages {
+		server.Packages = append(server.Packages, models.Package{
+			RegistryName:         officialPkg.RegistryType,
+			Name:                 officialPkg.Identifier,
+			EnvironmentVariables: officialPkg.EnvironmentVariables,
+		})
+	}
+
+	// Convert remotes
+	for _, officialRemote := range official.Remotes {
+		server.Remotes = append(server.Remotes, models.Remote{
+			TransportType: officialRemote.Type,
+			URL:           officialRemote.URL,
+		})
+	}
+
+	return server
+}
+
+// mapRegistryTypeToFriendlyName converts technical registry types to user-friendly names
+func mapRegistryTypeToFriendlyName(registryType string) string {
+	mapping := map[string]string{
+		"oci":              "docker",
+		"pypi":             "python",
+		"npm":              "npm",
+		"sse":              "remote",
+		"streamable-http":  "remote",
+	}
+
+	if friendly, ok := mapping[registryType]; ok {
+		return friendly
+	}
+	return registryType
+}
+
+// extractServerTypes extracts package registry types or remote types from a server
+func extractServerTypes(server *models.ServerDetail) []string {
+	types := []string{}
+
+	// Add package registry types
+	for _, pkg := range server.Packages {
+		if pkg.RegistryName != "" {
+			friendlyName := mapRegistryTypeToFriendlyName(pkg.RegistryName)
+			types = append(types, friendlyName)
+		}
+	}
+
+	// Add remote types if no packages
+	if len(types) == 0 {
+		for _, remote := range server.Remotes {
+			if remote.TransportType != "" {
+				friendlyName := mapRegistryTypeToFriendlyName(remote.TransportType)
+				types = append(types, friendlyName)
+			}
+		}
+	}
+
+	// Remove duplicates
+	seen := make(map[string]bool)
+	unique := []string{}
+	for _, t := range types {
+		if !seen[t] {
+			seen[t] = true
+			unique = append(unique, t)
+		}
+	}
+
+	return unique
 }
 
 // shouldUpdate determines if a server should be updated

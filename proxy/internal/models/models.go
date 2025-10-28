@@ -26,11 +26,28 @@ type Server struct {
 	VersionDetail VersionDetail `json:"version_detail"`
 }
 
+// Transport represents the transport mechanism for a package
+type Transport struct {
+	Type string `json:"type"` // stdio, sse, or http
+}
+
+// Argument represents a runtime or package argument
+type Argument struct {
+	Type    string `json:"type"`              // "positional" or "named"
+	Name    string `json:"name,omitempty"`    // For named arguments
+	Value   string `json:"value,omitempty"`   // The argument value
+	Default string `json:"default,omitempty"` // Default value
+}
+
 // Package represents package information
 type Package struct {
 	RegistryName         string                 `json:"registry_name"`
 	Name                 string                 `json:"name"`
 	Version              string                 `json:"version"`
+	Transport            *Transport             `json:"transport,omitempty"`
+	RuntimeHint          string                 `json:"runtime_hint,omitempty"`
+	RuntimeArguments     []Argument             `json:"runtime_arguments,omitempty"`
+	PackageArguments     []Argument             `json:"package_arguments,omitempty"`
 	EnvironmentVariables []EnvironmentVariable  `json:"environment_variables,omitempty"`
 }
 
@@ -46,10 +63,13 @@ type ServerDetail struct {
 	Packages []Package `json:"packages,omitempty"`
 }
 
-// EnrichedServer combines Server with Packages for the proxy response
+// EnrichedServer combines Server with Packages and Stats for the proxy response
 type EnrichedServer struct {
 	Server
-	Packages []Package `json:"packages,omitempty"`
+	Packages          []Package `json:"packages,omitempty"`
+	Rating            float64   `json:"rating,omitempty"`
+	RatingCount       int       `json:"rating_count,omitempty"`
+	InstallationCount int       `json:"installation_count,omitempty"`
 }
 
 // ProxyResponse wraps the enriched servers with metadata
