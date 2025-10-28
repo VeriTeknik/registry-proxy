@@ -10,6 +10,9 @@ import (
 	"github.com/pluggedin/registry-admin/internal/models"
 )
 
+// DefaultServerVersion is the default version assigned to servers when not specified
+const DefaultServerVersion = "1.0.0"
+
 // Operations provides database operations
 type Operations struct {
 	db *PostgresDB
@@ -21,6 +24,8 @@ func NewOperations(db *PostgresDB) *Operations {
 }
 
 // ListServers retrieves servers with pagination
+// TODO: Consider using a SQL builder library (e.g., squirrel, goqu) for more robust
+// dynamic query construction, especially as query complexity grows with additional filters
 func (o *Operations) ListServers(ctx context.Context, page, limit int, status, registryName, search string) ([]models.ServerDetail, int64, error) {
 	pool := o.db.GetPool()
 
@@ -36,6 +41,10 @@ func (o *Operations) ListServers(ctx context.Context, page, limit int, status, r
 	}
 
 	if registryName != "" {
+		// TODO(performance): Add a specific GIN index for packages.registry_name queries:
+		// CREATE INDEX IF NOT EXISTS idx_servers_packages_registry_name
+		// ON servers USING GIN ((value->'packages'));
+		// This will improve performance for registry_name filtering on large datasets
 		whereConditions = append(whereConditions, fmt.Sprintf("value->'packages' @> $%d::jsonb", argPos))
 		args = append(args, fmt.Sprintf(`[{"registry_name":"%s"}]`, registryName))
 		argPos++
@@ -196,7 +205,7 @@ func (o *Operations) CreateServer(ctx context.Context, server *models.ServerDeta
 	`
 
 	now := time.Now()
-	version := "1.0.0" // Default version
+	version := DefaultServerVersion
 	if server.VersionDetail.Version != "" {
 		version = server.VersionDetail.Version
 	}

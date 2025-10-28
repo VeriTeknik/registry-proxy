@@ -265,55 +265,73 @@ func (h *SyncHandler) performSync(ctx context.Context, req SyncRequest) (*SyncRe
 	return result, nil
 }
 
+// buildPaginatedURL constructs a URL with pagination parameters
+func (h *SyncHandler) buildPaginatedURL(cursor string, limit int) string {
+	url := fmt.Sprintf("%s/v0/servers?limit=%d", h.officialRegistryURL, limit)
+	if cursor != "" {
+		url = fmt.Sprintf("%s&cursor=%s", url, cursor)
+	}
+	return url
+}
+
+// fetchPage fetches a single page from the official registry API
+func (h *SyncHandler) fetchPage(ctx context.Context, client *http.Client, url string) (*OfficialRegistryResponse, error) {
+	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %w", err)
+	}
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch page: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("API returned status %d: %s", resp.StatusCode, string(body))
+	}
+
+	var registryResp OfficialRegistryResponse
+	if err := json.NewDecoder(resp.Body).Decode(&registryResp); err != nil {
+		return nil, fmt.Errorf("failed to decode response: %w", err)
+	}
+
+	return &registryResp, nil
+}
+
+// filterLatestVersions filters server items to include only the latest versions
+func filterLatestVersions(items []OfficialServerItem) []models.ServerDetail {
+	result := make([]models.ServerDetail, 0, len(items))
+	for _, item := range items {
+		if item.Meta.Official.IsLatest {
+			serverDetail := convertOfficialToServerDetail(&item.Server)
+			result = append(result, serverDetail)
+		}
+	}
+	return result
+}
+
 // fetchOfficialServers fetches servers from the official registry with pagination
 func (h *SyncHandler) fetchOfficialServers(ctx context.Context) ([]models.ServerDetail, error) {
-	const maxPages = 100 // Safety limit to prevent infinite loops
+	const maxPages = 100  // Safety limit to prevent infinite loops
+	const pageLimit = 100 // Number of items per page
+
 	allServers := make([]models.ServerDetail, 0)
 	cursor := ""
-	pageCount := 0
 	client := &http.Client{Timeout: 30 * time.Second}
 
-	for {
-		pageCount++
-		if pageCount > maxPages {
-			return nil, fmt.Errorf("pagination limit exceeded after %d pages: possible infinite loop or rate limiting issue", maxPages)
-		}
-
-		// Build URL with pagination
-		url := fmt.Sprintf("%s/v0/servers?limit=100", h.officialRegistryURL)
-		if cursor != "" {
-			url = fmt.Sprintf("%s&cursor=%s", url, cursor)
-		}
-
-		req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
+	for pageCount := 1; pageCount <= maxPages; pageCount++ {
+		// Fetch a single page
+		url := h.buildPaginatedURL(cursor, pageLimit)
+		registryResp, err := h.fetchPage(ctx, client, url)
 		if err != nil {
 			return nil, err
 		}
 
-		resp, err := client.Do(req)
-		if err != nil {
-			return nil, err
-		}
-		defer resp.Body.Close()
-
-		if resp.StatusCode != http.StatusOK {
-			body, _ := io.ReadAll(resp.Body)
-			return nil, fmt.Errorf("API returned status %d: %s", resp.StatusCode, string(body))
-		}
-
-		var registryResp OfficialRegistryResponse
-		if err := json.NewDecoder(resp.Body).Decode(&registryResp); err != nil {
-			return nil, err
-		}
-
-		// Extract server details from nested structure, filtering for latest versions only
-		for _, item := range registryResp.Servers {
-			// Only include servers marked as latest version
-			if item.Meta.Official.IsLatest {
-				serverDetail := convertOfficialToServerDetail(&item.Server)
-				allServers = append(allServers, serverDetail)
-			}
-		}
+		// Filter and append latest versions
+		latestServers := filterLatestVersions(registryResp.Servers)
+		allServers = append(allServers, latestServers...)
 
 		// Check if there are more pages
 		if registryResp.Metadata.NextCursor == "" {
@@ -321,6 +339,11 @@ func (h *SyncHandler) fetchOfficialServers(ctx context.Context) ([]models.Server
 		}
 
 		cursor = registryResp.Metadata.NextCursor
+
+		// Safety check: if we hit max pages, return error
+		if pageCount == maxPages {
+			return nil, fmt.Errorf("pagination limit exceeded after %d pages: possible infinite loop or rate limiting issue", maxPages)
+		}
 	}
 
 	return allServers, nil
