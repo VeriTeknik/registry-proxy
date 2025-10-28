@@ -1,0 +1,82 @@
+name: Tidy Go Dependencies
+
+on:
+  workflow_dispatch:
+    inputs:
+      module:
+        description: 'Module to tidy (proxy, admin, or both)'
+        required: true
+        default: 'both'
+        type: choice
+        options:
+          - proxy
+          - admin
+          - both
+
+permissions:
+  contents: write
+
+jobs:
+  tidy-proxy:
+    name: Tidy Proxy Module
+    runs-on: ubuntu-latest
+    if: github.event.inputs.module == 'proxy' || github.event.inputs.module == 'both'
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.23'
+
+      - name: Run go mod tidy for proxy
+        working-directory: ./proxy
+        run: |
+          echo "Running go mod tidy for proxy..."
+          go mod tidy -v
+
+      - name: Commit changes
+        run: |
+          git config --local user.email "github-actions[bot]@users.noreply.github.com"
+          git config --local user.name "github-actions[bot]"
+          git add proxy/go.sum proxy/go.mod
+          if git diff --cached --quiet; then
+            echo "No changes to commit"
+          else
+            git commit -m "chore(proxy): run go mod tidy"
+            git push
+          fi
+
+  tidy-admin:
+    name: Tidy Admin Module
+    runs-on: ubuntu-latest
+    if: github.event.inputs.module == 'admin' || github.event.inputs.module == 'both'
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.23'
+
+      - name: Run go mod tidy for admin
+        working-directory: ./admin
+        run: |
+          echo "Running go mod tidy for admin..."
+          go mod tidy -v
+
+      - name: Commit changes
+        run: |
+          git config --local user.email "github-actions[bot]@users.noreply.github.com"
+          git config --local user.name "github-actions[bot]"
+          git add admin/go.sum admin/go.mod
+          if git diff --cached --quiet; then
+            echo "No changes to commit"
+          else
+            git commit -m "chore(admin): run go mod tidy"
+            git push
+          fi
