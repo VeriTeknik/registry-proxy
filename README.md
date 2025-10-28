@@ -1,17 +1,36 @@
-# plugged.in Infrastructure Documentation
+# MCP Registry Proxy
+
+[![Version](https://img.shields.io/badge/version-1.0.0-blue)](https://github.com/VeriTeknik/registry-proxy/releases)
+[![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
+[![PostgreSQL](https://img.shields.io/badge/postgresql-15+-blue)](https://www.postgresql.org/)
 
 ## Overview
 
-This directory contains the infrastructure and services for plugged.in, a community platform for Model Context Protocol (MCP) servers.
+Enhanced MCP Registry Proxy with PostgreSQL backend, rating system, and admin synchronization with the official MCP Registry at registry.modelcontextprotocol.io.
+
+## 🎯 What's New in v1.0.0
+
+### ✨ Major Features
+- **PostgreSQL Migration**: Complete migration from MongoDB to PostgreSQL for better performance and ACID compliance
+- **Rating & Review System**: 5-star ratings and written reviews for MCP servers
+- **Admin Sync**: Synchronize with official registry.modelcontextprotocol.io
+- **Security Hardening**: SQL injection prevention, input validation, authentication middleware
+- **Enhanced Admin UI**: Server management, status control, search & filter, pagination
+- **Performance Optimizations**: Database indexes, connection pooling, efficient caching
+
+See [CHANGELOG](https://github.com/VeriTeknik/registry-proxy/releases/tag/v1.0.0) for complete release notes.
 
 ## Directory Structure
 
 ```
-/home/pluggedin/
-├── main/                    # Main deployment infrastructure
-├── registry/                # MCP Registry (upstream fork)
-├── mcp-analytics/           # Analytics service (to be deprecated)
-└── registry-obsolete/       # Old registry with analytics (archived)
+.
+├── proxy/                   # Main proxy service (Go)
+├── admin/                   # Admin web interface (Go + JavaScript)
+├── main/                    # Deployment infrastructure
+│   ├── docker-compose.yml   # PostgreSQL, Traefik, services
+│   └── enhancement_schema.sql # Database schema
+├── registry/                # Upstream MCP Registry (submodule)
+└── docs/                    # Documentation
 ```
 
 ## Active Services
@@ -22,7 +41,9 @@ The central deployment directory containing:
 
 - **docker-compose.yml**: Core infrastructure services
   - Traefik (reverse proxy with SSL)
-  - MongoDB (shared database)
+  - PostgreSQL (primary database)
+  - Proxy Service (Enhanced MCP Registry API)
+  - Admin Service (Management interface)
   
 - **Scripts**:
   - `start-all.sh` - Starts all services
@@ -47,17 +68,32 @@ Clean fork of the official MCP registry from modelcontextprotocol/registry.
 └────────┬────────┘
          │
     ┌────▼────┐
-    │ Traefik │ (SSL, Routing)
+    │ Traefik │ (SSL, Routing, Load Balancing)
     └────┬────┘
          │
-    ┌────▼────────────────┐
-    │  Registry Service   │
-    │  (MCP Servers DB)   │
-    └──────────┬──────────┘
-               │
-         ┌─────▼─────┐
-         │  MongoDB  │
-         └───────────┘
+    ┌────▼─────────────────────────────────┐
+    │   Proxy Service (Port 8090)          │
+    │   • Server listings & search          │
+    │   • Rating & review system            │
+    │   • Stats & analytics                 │
+    │   • Sync with official registry       │
+    └────┬──────────────────────────────────┘
+         │
+    ┌────▼─────────────────────────────────┐
+    │   Admin Service (Port 8091)          │
+    │   • Server management UI              │
+    │   • Sync preview & execution          │
+    │   • Status management                 │
+    │   • Import/Export tools               │
+    └────┬──────────────────────────────────┘
+         │
+    ┌────▼──────────┐
+    │  PostgreSQL   │ (Primary Database)
+    │   • servers   │ (Server metadata with versioning)
+    │   • server_stats  │ (Ratings, installs, reviews)
+    │   • server_ratings │ (Individual user ratings)
+    │   • server_reviews │ (User reviews)
+    └───────────────┘
 ```
 
 ## Service URLs
@@ -89,17 +125,37 @@ docker ps
 
 ## Database
 
-MongoDB is used as the primary database:
-- **Container**: mongodb
-- **Port**: 27017
-- **Database**: mcp-registry
-- **Collection**: servers_v2
+PostgreSQL is the primary database (migrated from MongoDB in v1.0.0):
+- **Container**: postgres
+- **Port**: 5432
+- **Database**: pluggedin
+- **User**: postgres
 
-### Accessing MongoDB
+### Database Schema
+
+**Core Tables:**
+- `servers` - Server metadata with versioning support
+- `server_stats` - Installation counts, ratings, and analytics
+- `server_ratings` - Individual user ratings (1-5 stars)
+- `server_reviews` - Written reviews with timestamps
+
+### Accessing PostgreSQL
 
 ```bash
-docker exec -it mongodb mongosh mcp-registry
+# Connect to database
+docker exec -it postgres psql -U postgres -d pluggedin
+
+# View servers
+SELECT server_name, version, status FROM servers WHERE is_latest = true LIMIT 10;
+
+# View ratings
+SELECT server_id, AVG(rating) as avg_rating, COUNT(*) as total_ratings
+FROM server_ratings GROUP BY server_id;
 ```
+
+### Migration from MongoDB
+
+See [POSTGRES_MIGRATION_PLAN.md](POSTGRES_MIGRATION_PLAN.md) for complete migration guide.
 
 ## SSL Certificates
 
@@ -214,10 +270,33 @@ Data and code archived for reference.
 - Check SSL certificate renewal
 - Backup MongoDB data
 
+## 📝 Release Notes
+
+### v1.0.0 - PostgreSQL Migration & Production Ready (2025-10-28)
+
+**Major Features:**
+- Complete PostgreSQL migration with optimized schema
+- Rating & review system for MCP servers
+- Admin sync with official registry
+- Comprehensive security hardening
+- Enhanced admin interface
+
+**Breaking Changes:**
+- MongoDB no longer supported (PostgreSQL required)
+- New environment variables required (see .env.example)
+- Admin authentication now mandatory
+
+See [full release notes](https://github.com/VeriTeknik/registry-proxy/releases/tag/v1.0.0) for details.
+
 ## Contact
 
-For issues or questions about the infrastructure, refer to the GitHub repository or documentation at https://docs.plugged.in
+For issues or questions:
+- **GitHub Issues**: https://github.com/VeriTeknik/registry-proxy/issues
+- **Documentation**: See DEPLOYMENT_COMPLETE.md and POSTGRES_MIGRATION_PLAN.md
+- **Official Registry**: https://registry.modelcontextprotocol.io
 
 ---
 
-Last Updated: January 2025
+**Version**: 1.0.0
+**Last Updated**: October 28, 2025
+**License**: MIT
