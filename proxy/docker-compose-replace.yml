@@ -9,6 +9,8 @@ services:
     image: registry-proxy:v2
     container_name: registry-proxy
     restart: unless-stopped
+    env_file:
+      - ../.env
     environment:
       - PROXY_PORT=8090
       - REGISTRY_URL=http://registry:8080

@@ -28,11 +28,42 @@ func NewRegistryClient(baseURL string) *RegistryClient {
 	}
 }
 
+// UpstreamServerWrapper wraps the new nested format from upstream
+type UpstreamServerWrapper struct {
+	Server struct {
+		Schema      string `json:"$schema"`
+		Name        string `json:"name"`
+		Description string `json:"description"`
+		Title       string `json:"title,omitempty"`
+		Status      string `json:"status,omitempty"`
+		Repository  struct {
+			URL    string `json:"url"`
+			Source string `json:"source"`
+			ID     string `json:"id,omitempty"`
+		} `json:"repository,omitempty"`
+		Version    string `json:"version,omitempty"`
+		Packages   []struct {
+			RegistryType string `json:"registryType"`
+			Identifier   string `json:"identifier"`
+			Version      string `json:"version"`
+			Transport    struct {
+				Type string `json:"type"` // stdio, sse, http
+			} `json:"transport,omitempty"`
+			EnvironmentVariables []struct {
+				Name        string `json:"name"`
+				Description string `json:"description,omitempty"`
+			} `json:"environment_variables,omitempty"`
+		} `json:"packages,omitempty"`
+		Remotes []interface{} `json:"remotes,omitempty"`
+	} `json:"server"`
+	Meta map[string]interface{} `json:"_meta,omitempty"`
+}
+
 // ListResponse represents the response from the list endpoint
 type ListResponse struct {
-	Servers  []models.Server `json:"servers"`
+	Servers  []UpstreamServerWrapper `json:"servers"`
 	Metadata struct {
-		NextCursor string `json:"next_cursor,omitempty"`
+		NextCursor string `json:"nextCursor,omitempty"`
 		Count      int    `json:"count"`
 	} `json:"metadata"`
 }
@@ -96,49 +127,158 @@ func (c *RegistryClient) GetServerDetail(ctx context.Context, serverID string) (
 	return &detail, nil
 }
 
+// convertToEnrichedServer converts UpstreamServerWrapper to EnrichedServer
+func convertToEnrichedServer(wrapper UpstreamServerWrapper) models.EnrichedServer {
+	// Convert packages
+	packages := make([]models.Package, len(wrapper.Server.Packages))
+	for i, pkg := range wrapper.Server.Packages {
+		envVars := make([]models.EnvironmentVariable, len(pkg.EnvironmentVariables))
+		for j, ev := range pkg.EnvironmentVariables {
+			envVars[j] = models.EnvironmentVariable{
+				Name:        ev.Name,
+				Description: ev.Description,
+			}
+		}
+
+		// Parse transport
+		var transport *models.Transport
+		if pkg.Transport.Type != "" {
+			transport = &models.Transport{
+				Type: pkg.Transport.Type,
+			}
+		}
+
+		// Add default runtime arguments based on registry type
+		var runtimeArgs []models.Argument
+		var runtimeHint string
+
+		switch pkg.RegistryType {
+		case "npm":
+			runtimeHint = "npx"
+			// Add -y flag by default for npm packages to auto-install
+			runtimeArgs = []models.Argument{
+				{
+					Type:  "named",
+					Name:  "-y",
+					Value: "",
+				},
+			}
+		case "pypi":
+			runtimeHint = "uvx"
+		case "docker":
+			runtimeHint = "docker"
+		}
+
+		packages[i] = models.Package{
+			RegistryName:         pkg.RegistryType,
+			Name:                 pkg.Identifier,
+			Version:              pkg.Version,
+			Transport:            transport,
+			RuntimeHint:          runtimeHint,
+			RuntimeArguments:     runtimeArgs,
+			EnvironmentVariables: envVars,
+		}
+	}
+
+	// Extract published/updated dates from _meta if available
+	releaseDate := time.Now().Format(time.RFC3339)
+	if meta, ok := wrapper.Meta["io.modelcontextprotocol.registry/official"].(map[string]interface{}); ok {
+		if published, ok := meta["publishedAt"].(string); ok {
+			releaseDate = published
+		}
+	}
+
+	return models.EnrichedServer{
+		Server: models.Server{
+			ID:          wrapper.Server.Name, // Use name as ID for now
+			Name:        wrapper.Server.Name,
+			Description: wrapper.Server.Description,
+			Status:      wrapper.Server.Status,
+			Repository: models.Repository{
+				URL:    wrapper.Server.Repository.URL,
+				Source: wrapper.Server.Repository.Source,
+				ID:     wrapper.Server.Repository.ID,
+			},
+			VersionDetail: models.VersionDetail{
+				Version:     wrapper.Server.Version,
+				ReleaseDate: releaseDate,
+				IsLatest:    true, // Assume latest for now
+			},
+		},
+		Packages: packages,
+	}
+}
+
 // GetAllServersWithDetails fetches all servers and enriches them with package details
 func (c *RegistryClient) GetAllServersWithDetails(ctx context.Context) ([]models.EnrichedServer, error) {
-	var allServers []models.Server
+	var enriched []models.EnrichedServer
 	cursor := ""
-	
+
 	// Fetch all servers (paginated)
 	for {
 		resp, err := c.GetServers(ctx, cursor, 100)
 		if err != nil {
 			return nil, fmt.Errorf("fetching servers: %w", err)
 		}
-		
-		allServers = append(allServers, resp.Servers...)
-		
+
+		// Convert wrapped servers to enriched servers
+		for _, wrapper := range resp.Servers {
+			enriched = append(enriched, convertToEnrichedServer(wrapper))
+		}
+
 		if resp.Metadata.NextCursor == "" {
 			break
 		}
 		cursor = resp.Metadata.NextCursor
 	}
-	
+
+	return enriched, nil
+}
+
+// Old parallel fetching method (no longer needed with new API format)
+func (c *RegistryClient) GetAllServersWithDetailsOld(ctx context.Context) ([]models.EnrichedServer, error) {
+	var allServers []models.Server
+	cursor := ""
+
+	// Fetch all servers (paginated)
+	for {
+		resp, err := c.GetServers(ctx, cursor, 100)
+		if err != nil {
+			return nil, fmt.Errorf("fetching servers: %w", err)
+		}
+
+		// This would need conversion from UpstreamServerWrapper to models.Server
+		// allServers = append(allServers, resp.Servers...)
+
+		if resp.Metadata.NextCursor == "" {
+			break
+		}
+		cursor = resp.Metadata.NextCursor
+	}
+
 	// Enrich servers with details in parallel
 	enriched := make([]models.EnrichedServer, len(allServers))
 	var wg sync.WaitGroup
 	var mu sync.Mutex
 	errs := make([]error, 0)
-	
+
 	// Limit concurrent requests
 	semaphore := make(chan struct{}, 10)
-	
+
 	for i, server := range allServers {
 		wg.Add(1)
 		go func(idx int, srv models.Server) {
 			defer wg.Done()
-			
+
 			semaphore <- struct{}{}
 			defer func() { <-semaphore }()
-			
+
 			detail, err := c.GetServerDetail(ctx, srv.ID)
 			if err != nil {
 				mu.Lock()
 				errs = append(errs, fmt.Errorf("fetching detail for %s: %w", srv.ID, err))
 				mu.Unlock()
-				
+
 				// Use basic server info without packages on error
 				enriched[idx] = models.EnrichedServer{
 					Server:   srv,
@@ -146,7 +286,7 @@ func (c *RegistryClient) GetAllServersWithDetails(ctx context.Context) ([]models
 				}
 				return
 			}
-			
+
 			enriched[idx] = models.EnrichedServer{
 				Server:   srv,
 				Packages: detail.Packages,

@@ -1,4 +1,4 @@
-version: '3.8'
+# PostgreSQL-based infrastructure for plugged.in registry
 
 networks:
   traefik:
@@ -44,7 +44,31 @@ services:
     networks:
       - traefik
 
-  # MongoDB (shared database)
+  # PostgreSQL (for registry)
+  postgresql:
+    image: postgres:16-alpine
+    container_name: postgresql
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-mcp_registry}
+      POSTGRES_USER: ${POSTGRES_USER:-mcpregistry}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set in .env file}
+      PGDATA: /var/lib/postgresql/data/pgdata
+    volumes:
+      - ./postgresql/data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U mcpregistry -d mcp_registry"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    ports:
+      - "5432:5432"
+    networks:
+      - default
+      - traefik
+
+  # MongoDB (temporarily for admin only)
   mongodb:
     image: mongo:latest
     container_name: mongodb

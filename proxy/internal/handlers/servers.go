@@ -13,6 +13,7 @@ import (
 
 	"github.com/veriteknik/registry-proxy/internal/cache"
 	"github.com/veriteknik/registry-proxy/internal/client"
+	"github.com/veriteknik/registry-proxy/internal/db"
 	"github.com/veriteknik/registry-proxy/internal/models"
 )
 
@@ -20,13 +21,15 @@ import (
 type ServersHandler struct {
 	registryClient *client.RegistryClient
 	cache          *cache.Cache
+	db             *db.DB
 }
 
 // NewServersHandler creates a new servers handler
-func NewServersHandler(registryURL string, cache *cache.Cache) *ServersHandler {
+func NewServersHandler(registryURL string, cache *cache.Cache, database *db.DB) *ServersHandler {
 	return &ServersHandler{
 		registryClient: client.NewRegistryClient(registryURL),
 		cache:          cache,
+		db:             database,
 	}
 }
 
@@ -127,6 +130,21 @@ func (h *ServersHandler) getEnrichedServers(ctx context.Context) ([]models.Enric
 	servers, err := h.registryClient.GetAllServersWithDetails(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("fetching servers: %w", err)
+	}
+
+	// Enrich with stats from database
+	if h.db != nil {
+		for i := range servers {
+			rating, ratingCount, installCount, err := h.db.GetServerStats(ctx, servers[i].ID)
+			if err != nil {
+				log.Printf("Warning: Failed to get stats for server %s: %v", servers[i].ID, err)
+				// Continue without stats rather than failing the entire request
+				continue
+			}
+			servers[i].Rating = rating
+			servers[i].RatingCount = ratingCount
+			servers[i].InstallationCount = installCount
+		}
 	}
 
 	// Cache the result

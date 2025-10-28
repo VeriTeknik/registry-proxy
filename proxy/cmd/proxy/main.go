@@ -5,10 +5,13 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/veriteknik/registry-proxy/internal/cache"
+	"github.com/veriteknik/registry-proxy/internal/db"
 	"github.com/veriteknik/registry-proxy/internal/handlers"
+	"github.com/veriteknik/registry-proxy/internal/middleware"
 )
 
 func main() {
@@ -29,8 +32,16 @@ func main() {
 	// Initialize cache
 	proxyCache := cache.NewCache(cacheExpiration, cacheCleanup)
 
+	// Initialize database connection
+	database, err := db.NewPostgresDB()
+	if err != nil {
+		log.Fatalf("Failed to connect to database: %v", err)
+	}
+	defer database.Close()
+
 	// Initialize handlers
-	serversHandler := handlers.NewServersHandler(registryURL, proxyCache)
+	serversHandler := handlers.NewServersHandler(registryURL, proxyCache, database)
+	ratingsHandler := handlers.NewRatingsHandler(database)
 	passthroughHandler, err := handlers.NewPassthroughHandler(registryURL, proxyCache)
 	if err != nil {
 		log.Fatalf("Failed to create passthrough handler: %v", err)
@@ -60,6 +71,42 @@ func main() {
 			// Proxy everything else (like /v0/servers/{id})
 			passthroughHandler.ProxySpecificEndpoint().ServeHTTP(w, r)
 		}
+	})
+
+	// Rating endpoints
+	mux.HandleFunc("/v0/servers/", func(w http.ResponseWriter, r *http.Request) {
+		path := strings.TrimPrefix(r.URL.Path, "/v0/servers/")
+		parts := strings.Split(path, "/")
+
+		// Check if the last part of the path is a rating endpoint
+		if len(parts) >= 2 {
+			lastPart := parts[len(parts)-1]
+			switch lastPart {
+			case "rate":
+				// Write operation - requires authentication
+				middleware.APIKeyAuth(ratingsHandler.HandleRate)(w, r)
+				return
+			case "install":
+				// Write operation - requires authentication
+				middleware.APIKeyAuth(ratingsHandler.HandleInstall)(w, r)
+				return
+			case "stats":
+				// Read operation - public
+				ratingsHandler.HandleStats(w, r)
+				return
+			case "reviews":
+				// Read operation - public
+				ratingsHandler.HandleGetReviews(w, r)
+				return
+			case "feedback":
+				// Read operation - public (with pagination)
+				ratingsHandler.HandleGetFeedback(w, r)
+				return
+			}
+		}
+
+		// If not a rating endpoint, proxy to upstream
+		passthroughHandler.ProxySpecificEndpoint().ServeHTTP(w, r)
 	})
 
 	// Publish endpoint (proxy to upstream)
