@@ -10,7 +10,9 @@ jobs:
   deploy:
     name: Deploy Registry
     runs-on: ubuntu-latest
-    
+    permissions:
+      contents: read
+
     steps:
       - name: Deploy to server
         uses: appleboy/ssh-action@v1.0.3

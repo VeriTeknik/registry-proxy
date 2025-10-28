@@ -16,6 +16,8 @@ jobs:
   test:
     name: Test
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     strategy:
       matrix:
         module: [proxy, admin]
@@ -64,6 +66,8 @@ jobs:
   build:
     name: Build Docker Image
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     needs: test
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     strategy:
@@ -101,10 +105,13 @@ jobs:
   deploy:
     name: Deploy to Production
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      deployments: write
     needs: build
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     environment: production
-    
+
     steps:
       - name: Deploy to server
         uses: appleboy/ssh-action@v1.0.3

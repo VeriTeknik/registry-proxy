@@ -1046,8 +1046,16 @@ async function validateImport() {
         }
         if (!server.repository.url) {
             validationErrors.push(`${server.key}: Missing repository URL`);
-        } else if (!server.repository.url.includes('github.com')) {
-            validationErrors.push(`${server.key}: Repository must be a GitHub URL`);
+        } else {
+            // Properly validate GitHub URL using URL parsing to prevent bypasses
+            try {
+                const url = new URL(server.repository.url);
+                if (url.hostname !== 'github.com' && url.hostname !== 'www.github.com') {
+                    validationErrors.push(`${server.key}: Repository must be a GitHub URL`);
+                }
+            } catch (e) {
+                validationErrors.push(`${server.key}: Invalid repository URL format`);
+            }
         }
         
         // Validate against schema (if endpoint exists)
@@ -1094,10 +1102,19 @@ function getSelectedServers() {
             server.version_detail.version = document.getElementById(`import-version-${index}`).value;
             
             // Generate repository ID from URL if possible
-            if (server.repository.url && server.repository.url.includes('github.com')) {
-                const match = server.repository.url.match(/github\.com\/([^\/]+)\/([^\/\.]+)/);
-                if (match) {
-                    server.repository.id = `github-${match[1]}-${match[2]}`;
+            if (server.repository.url) {
+                try {
+                    const url = new URL(server.repository.url);
+                    // Properly validate GitHub hostname to prevent bypasses
+                    if (url.hostname === 'github.com' || url.hostname === 'www.github.com') {
+                        const match = server.repository.url.match(/github\.com\/([^\/]+)\/([^\/\.]+)/);
+                        if (match) {
+                            server.repository.id = `github-${match[1]}-${match[2]}`;
+                        }
+                    }
+                } catch (e) {
+                    // Invalid URL format, skip repository ID generation
+                    console.warn(`Invalid repository URL format: ${server.repository.url}`);
                 }
             }
             
