@@ -163,10 +163,12 @@ func (h *RatingsHandler) HandleInstall(w http.ResponseWriter, r *http.Request) {
 		log.Printf("Failed to get stats: %v", err)
 		// Don't fail the request, just return success without stats
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]interface{}{
+		if err := json.NewEncoder(w).Encode(map[string]interface{}{
 			"success": true,
 			"message": "Installation tracked successfully",
-		})
+		}); err != nil {
+			log.Printf("Error encoding install response: %v", err)
+		}
 		return
 	}
 
@@ -181,7 +183,9 @@ func (h *RatingsHandler) HandleInstall(w http.ResponseWriter, r *http.Request) {
 			"installation_count": installCount,
 		},
 	}
-	json.NewEncoder(w).Encode(response)
+	if err := json.NewEncoder(w).Encode(response); err != nil {
+		log.Printf("Error encoding install response: %v", err)
+	}
 }
 
 // HandleStats handles GET /v0/servers/:id/stats
@@ -215,7 +219,9 @@ func (h *RatingsHandler) HandleStats(w http.ResponseWriter, r *http.Request) {
 	response.Stats.InstallationCount = installCount
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(response)
+	if err := json.NewEncoder(w).Encode(response); err != nil {
+		log.Printf("Error encoding stats response: %v", err)
+	}
 }
 
 // HandleGetReviews handles GET /v0/servers/:id/reviews
@@ -223,9 +229,11 @@ func (h *RatingsHandler) HandleGetReviews(w http.ResponseWriter, r *http.Request
 	if r.Method != http.MethodGet {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusMethodNotAllowed)
-		json.NewEncoder(w).Encode(map[string]interface{}{
+		if err := json.NewEncoder(w).Encode(map[string]interface{}{
 			"error": "Method not allowed",
-		})
+		}); err != nil {
+			log.Printf("Error encoding error response: %v", err)
+		}
 		return
 	}
 
@@ -235,9 +243,11 @@ func (h *RatingsHandler) HandleGetReviews(w http.ResponseWriter, r *http.Request
 	if serverID == "" || serverID == path {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(map[string]interface{}{
+		if err := json.NewEncoder(w).Encode(map[string]interface{}{
 			"error": "Invalid path",
-		})
+		}); err != nil {
+			log.Printf("Error encoding error response: %v", err)
+		}
 		return
 	}
 
@@ -247,10 +257,12 @@ func (h *RatingsHandler) HandleGetReviews(w http.ResponseWriter, r *http.Request
 		log.Printf("Failed to get reviews for %s: %v", serverID, err)
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(map[string]interface{}{
+		if err := json.NewEncoder(w).Encode(map[string]interface{}{
 			"error": "Failed to get reviews",
 			"reviews": []interface{}{},
-		})
+		}); err != nil {
+			log.Printf("Error encoding error response: %v", err)
+		}
 		return
 	}
 
@@ -261,9 +273,11 @@ func (h *RatingsHandler) HandleGetReviews(w http.ResponseWriter, r *http.Request
 
 	// Return reviews
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]interface{}{
+	if err := json.NewEncoder(w).Encode(map[string]interface{}{
 		"reviews": reviews,
-	})
+	}); err != nil {
+		log.Printf("Error encoding reviews response: %v", err)
+	}
 }
 
 // FeedbackItem represents a feedback item in the format expected by the frontend
@@ -286,9 +300,11 @@ func (h *RatingsHandler) HandleGetFeedback(w http.ResponseWriter, r *http.Reques
 
 	if r.Method != http.MethodGet {
 		w.WriteHeader(http.StatusMethodNotAllowed)
-		json.NewEncoder(w).Encode(map[string]interface{}{
+		if err := json.NewEncoder(w).Encode(map[string]interface{}{
 			"error": "Method not allowed",
-		})
+		}); err != nil {
+			log.Printf("Error encoding error response: %v", err)
+		}
 		return
 	}
 
@@ -297,9 +313,11 @@ func (h *RatingsHandler) HandleGetFeedback(w http.ResponseWriter, r *http.Reques
 	serverID := strings.TrimSuffix(path, "/feedback")
 	if serverID == "" || serverID == path {
 		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(map[string]interface{}{
+		if err := json.NewEncoder(w).Encode(map[string]interface{}{
 			"error": "Invalid path",
-		})
+		}); err != nil {
+			log.Printf("Error encoding error response: %v", err)
+		}
 		return
 	}
 
@@ -329,12 +347,14 @@ func (h *RatingsHandler) HandleGetFeedback(w http.ResponseWriter, r *http.Reques
 	if err != nil {
 		log.Printf("Failed to get feedback for %s: %v", serverID, err)
 		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(map[string]interface{}{
+		if err := json.NewEncoder(w).Encode(map[string]interface{}{
 			"error":       "Failed to get feedback",
 			"feedback":    []interface{}{},
 			"total_count": 0,
 			"has_more":    false,
-		})
+		}); err != nil {
+			log.Printf("Error encoding error response: %v", err)
+		}
 		return
 	}
 
@@ -364,9 +384,11 @@ func (h *RatingsHandler) HandleGetFeedback(w http.ResponseWriter, r *http.Reques
 	hasMore := offset+len(reviews) < totalCount
 
 	// Return feedback response
-	json.NewEncoder(w).Encode(map[string]interface{}{
+	if err := json.NewEncoder(w).Encode(map[string]interface{}{
 		"feedback":    feedbackItems,
 		"total_count": totalCount,
 		"has_more":    hasMore,
-	})
+	}); err != nil {
+		log.Printf("Error encoding feedback response: %v", err)
+	}
 }
