@@ -1,39 +1,43 @@
 package middleware
 
 import (
+	"crypto/subtle"
 	"net/http"
 	"os"
 	"strings"
 )
 
-// APIKeyAuth validates API key for write operations
+// APIKeyAuth validates API key for write operations using constant-time comparison
 func APIKeyAuth(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		// Get API key from environment
 		validAPIKey := os.Getenv("API_KEY")
 		if validAPIKey == "" {
 			// If no API key is configured, reject all requests
-			http.Error(w, "API authentication not configured", http.StatusServiceUnavailable)
+			// Use generic error message to avoid information disclosure
+			http.Error(w, "Authentication failed", http.StatusUnauthorized)
 			return
 		}
 
 		// Get API key from request header
 		authHeader := r.Header.Get("Authorization")
 		if authHeader == "" {
-			http.Error(w, "Authorization header required", http.StatusUnauthorized)
+			http.Error(w, "Authentication required", http.StatusUnauthorized)
 			return
 		}
 
 		// Expected format: "Bearer <api_key>"
 		parts := strings.SplitN(authHeader, " ", 2)
 		if len(parts) != 2 || parts[0] != "Bearer" {
-			http.Error(w, "Invalid authorization format. Use: Bearer <api_key>", http.StatusUnauthorized)
+			http.Error(w, "Authentication failed", http.StatusUnauthorized)
 			return
 		}
 
 		apiKey := parts[1]
-		if apiKey != validAPIKey {
-			http.Error(w, "Invalid API key", http.StatusUnauthorized)
+
+		// Use constant-time comparison to prevent timing attacks
+		if subtle.ConstantTimeCompare([]byte(apiKey), []byte(validAPIKey)) != 1 {
+			http.Error(w, "Authentication failed", http.StatusUnauthorized)
 			return
 		}
 

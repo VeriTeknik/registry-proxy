@@ -267,11 +267,18 @@ func (h *SyncHandler) performSync(ctx context.Context, req SyncRequest) (*SyncRe
 
 // fetchOfficialServers fetches servers from the official registry with pagination
 func (h *SyncHandler) fetchOfficialServers(ctx context.Context) ([]models.ServerDetail, error) {
+	const maxPages = 100 // Safety limit to prevent infinite loops
 	allServers := make([]models.ServerDetail, 0)
 	cursor := ""
+	pageCount := 0
 	client := &http.Client{Timeout: 30 * time.Second}
 
 	for {
+		pageCount++
+		if pageCount > maxPages {
+			return nil, fmt.Errorf("pagination limit exceeded after %d pages: possible infinite loop or rate limiting issue", maxPages)
+		}
+
 		// Build URL with pagination
 		url := fmt.Sprintf("%s/v0/servers?limit=100", h.officialRegistryURL)
 		if cursor != "" {
@@ -287,19 +294,17 @@ func (h *SyncHandler) fetchOfficialServers(ctx context.Context) ([]models.Server
 		if err != nil {
 			return nil, err
 		}
+		defer resp.Body.Close()
 
 		if resp.StatusCode != http.StatusOK {
 			body, _ := io.ReadAll(resp.Body)
-			resp.Body.Close()
 			return nil, fmt.Errorf("API returned status %d: %s", resp.StatusCode, string(body))
 		}
 
 		var registryResp OfficialRegistryResponse
 		if err := json.NewDecoder(resp.Body).Decode(&registryResp); err != nil {
-			resp.Body.Close()
 			return nil, err
 		}
-		resp.Body.Close()
 
 		// Extract server details from nested structure, filtering for latest versions only
 		for _, item := range registryResp.Servers {

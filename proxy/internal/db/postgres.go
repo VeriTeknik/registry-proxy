@@ -214,17 +214,17 @@ func (db *DB) GetReviews(ctx context.Context, serverID string) ([]Review, error)
 
 // GetReviewsPaginated retrieves reviews for a server with pagination and sorting
 func (db *DB) GetReviewsPaginated(ctx context.Context, serverID string, limit, offset int, sort string) ([]Review, int, error) {
-	// Determine sort order
-	orderBy := "created_at DESC" // default: newest first
-	switch sort {
-	case "oldest":
-		orderBy = "created_at ASC"
-	case "rating_high":
-		orderBy = "rating DESC, created_at DESC"
-	case "rating_low":
-		orderBy = "rating ASC, created_at DESC"
-	case "newest":
-		orderBy = "created_at DESC"
+	// Use whitelist for valid sort columns to prevent SQL injection
+	validSorts := map[string]string{
+		"newest":      "created_at DESC",
+		"oldest":      "created_at ASC",
+		"rating_high": "rating DESC, created_at DESC",
+		"rating_low":  "rating ASC, created_at DESC",
+	}
+
+	orderBy, ok := validSorts[sort]
+	if !ok {
+		orderBy = validSorts["newest"] // safe default
 	}
 
 	// Get total count
@@ -235,14 +235,14 @@ func (db *DB) GetReviewsPaginated(ctx context.Context, serverID string, limit, o
 		return nil, 0, fmt.Errorf("failed to count reviews: %w", err)
 	}
 
-	// Get paginated reviews
-	query := fmt.Sprintf(`
+	// Get paginated reviews - orderBy is now from whitelist, safe to use
+	query := `
 		SELECT server_id, user_id, rating, comment, created_at, updated_at
 		FROM proxy_user_ratings
 		WHERE server_id = $1
-		ORDER BY %s
+		ORDER BY ` + orderBy + `
 		LIMIT $2 OFFSET $3
-	`, orderBy)
+	`
 
 	rows, err := db.QueryContext(ctx, query, serverID, limit, offset)
 	if err != nil {
