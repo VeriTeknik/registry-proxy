@@ -3,12 +3,15 @@ package db
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"log"
+	"math"
 	"os"
+	"strings"
 	"time"
 
-	_ "github.com/lib/pq"
+	"github.com/lib/pq"
 )
 
 // DB holds the database connection pool
@@ -276,4 +279,367 @@ func (db *DB) GetReviewsPaginated(ctx context.Context, serverID string, limit, o
 	}
 
 	return reviews, totalCount, nil
+}
+
+// NewRegistryDB creates a connection to the registry database
+func NewRegistryDB() (*DB, error) {
+	// Get connection string from environment or use default for docker network
+	dbURL := os.Getenv("REGISTRY_DATABASE_URL")
+	if dbURL == "" {
+		// Default to the PostgreSQL container in the same network
+		dbURL = "postgres://mcpregistry:mcpregistry@postgresql:5432/mcp_registry?sslmode=disable"
+	}
+
+	// Open connection
+	db, err := sql.Open("postgres", dbURL)
+	if err != nil {
+		return nil, fmt.Errorf("failed to open registry database: %w", err)
+	}
+
+	// Configure connection pool
+	db.SetMaxOpenConns(25)
+	db.SetMaxIdleConns(5)
+	db.SetConnMaxLifetime(5 * time.Minute)
+
+	// Verify connection
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	if err := db.PingContext(ctx); err != nil {
+		return nil, fmt.Errorf("failed to ping registry database: %w", err)
+	}
+
+	log.Println("✓ Connected to Registry PostgreSQL database")
+
+	return &DB{db}, nil
+}
+
+// ServerFilter contains all possible filters for servers
+type ServerFilter struct {
+	Search           string   `json:"search,omitempty"`
+	RegistryTypes    []string `json:"registry_types,omitempty"` // npm, pypi, oci, remote, etc
+	Category         string   `json:"category,omitempty"`
+	Tags             []string `json:"tags,omitempty"`
+	HasTransport     []string `json:"has_transport,omitempty"` // sse, http, stdio
+	MinRating        float64  `json:"min_rating,omitempty"`
+	MinInstalls      int      `json:"min_installs,omitempty"`
+}
+
+// QueryServersEnhanced queries servers with filtering, sorting, and enrichment
+func (db *DB) QueryServersEnhanced(ctx context.Context, filter ServerFilter, sort string, limit, offset int) ([]map[string]interface{}, int, error) {
+	// Build the query dynamically based on filters
+	query := `
+		WITH filtered_servers AS (
+			SELECT
+				s.server_name,
+				s.value,
+				s.published_at,
+				s.updated_at,
+				COALESCE(ss.rating, 0) as rating,
+				COALESCE(ss.rating_count, 0) as rating_count,
+				COALESCE(ss.installation_count, 0) as installation_count
+			FROM servers s
+			LEFT JOIN proxy_server_stats ss ON s.server_name = ss.server_id
+			WHERE s.is_latest = true
+	`
+
+	args := []interface{}{}
+	argCount := 0
+
+	// Add search filter
+	if filter.Search != "" {
+		argCount++
+		query += fmt.Sprintf(` AND (
+			s.server_name ILIKE $%d OR
+			s.value->>'description' ILIKE $%d
+		)`, argCount, argCount)
+		searchTerm := "%" + filter.Search + "%"
+		args = append(args, searchTerm)
+	}
+
+	// Add category filter
+	if filter.Category != "" {
+		argCount++
+		query += fmt.Sprintf(` AND s.value->>'category' = $%d`, argCount)
+		args = append(args, filter.Category)
+	}
+
+	// Add tags filter
+	if len(filter.Tags) > 0 {
+		argCount++
+		query += fmt.Sprintf(` AND s.value->'tags' ?| $%d`, argCount)
+		args = append(args, pq.Array(filter.Tags))
+	}
+
+	// Add minimum rating filter
+	if filter.MinRating > 0 {
+		argCount++
+		query += fmt.Sprintf(` AND COALESCE(ss.rating, 0) >= $%d`, argCount)
+		args = append(args, filter.MinRating)
+	}
+
+	// Add minimum installs filter
+	if filter.MinInstalls > 0 {
+		argCount++
+		query += fmt.Sprintf(` AND COALESCE(ss.installation_count, 0) >= $%d`, argCount)
+		args = append(args, filter.MinInstalls)
+	}
+
+	query += `)
+	`
+
+	// Add registry type and transport filters (handled in WHERE clause after CTE)
+	whereClauses := []string{}
+
+	if len(filter.RegistryTypes) > 0 {
+		// Check if "remote" is in the filter
+		hasRemote := false
+		nonRemoteTypes := []string{}
+		for _, rt := range filter.RegistryTypes {
+			if rt == "remote" {
+				hasRemote = true
+			} else {
+				nonRemoteTypes = append(nonRemoteTypes, rt)
+			}
+		}
+
+		conditions := []string{}
+		if len(nonRemoteTypes) > 0 {
+			argCount++
+			conditions = append(conditions, fmt.Sprintf(
+				`EXISTS (
+					SELECT 1 FROM jsonb_array_elements(value->'packages') p
+					WHERE p->>'registry_name' = ANY($%d)
+				)`, argCount))
+			args = append(args, pq.Array(nonRemoteTypes))
+		}
+
+		if hasRemote {
+			conditions = append(conditions,
+				`EXISTS (
+					SELECT 1 FROM jsonb_array_elements(value->'remotes') r
+					WHERE r->>'transport_type' IN ('sse', 'http', 'streamable-http')
+				)`)
+		}
+
+		if len(conditions) > 0 {
+			whereClauses = append(whereClauses, "("+strings.Join(conditions, " OR ")+")")
+		}
+	}
+
+	if len(filter.HasTransport) > 0 {
+		argCount++
+		whereClauses = append(whereClauses, fmt.Sprintf(
+			`EXISTS (
+				SELECT 1 FROM jsonb_array_elements(value->'packages') p
+				WHERE p->'transport'->>'type' = ANY($%d)
+			)`, argCount))
+		args = append(args, pq.Array(filter.HasTransport))
+	}
+
+	// Build final query
+	query += `
+		SELECT
+			server_name,
+			value,
+			published_at,
+			updated_at,
+			rating,
+			rating_count,
+			installation_count,
+			COUNT(*) OVER() as total_count
+		FROM filtered_servers
+	`
+
+	if len(whereClauses) > 0 {
+		query += " WHERE " + strings.Join(whereClauses, " AND ")
+	}
+
+	// Add sorting
+	sortColumn := "published_at DESC" // default
+	switch sort {
+	case "name_asc":
+		sortColumn = "server_name ASC"
+	case "name_desc":
+		sortColumn = "server_name DESC"
+	case "updated":
+		sortColumn = "updated_at DESC"
+	case "rating_desc":
+		sortColumn = "rating DESC, rating_count DESC"
+	case "reviews_desc":
+		sortColumn = "rating_count DESC"
+	case "installs_desc":
+		sortColumn = "installation_count DESC"
+	case "trending":
+		// Trending: combination of recent activity and popularity
+		sortColumn = `(
+			installation_count * 0.3 +
+			rating_count * 0.3 +
+			rating * 10 +
+			CASE
+				WHEN updated_at > NOW() - INTERVAL '7 days' THEN 20
+				WHEN updated_at > NOW() - INTERVAL '30 days' THEN 10
+				ELSE 0
+			END
+		) DESC`
+	}
+
+	query += fmt.Sprintf(" ORDER BY %s", sortColumn)
+
+	// Add pagination
+	argCount++
+	query += fmt.Sprintf(" LIMIT $%d", argCount)
+	args = append(args, limit)
+
+	argCount++
+	query += fmt.Sprintf(" OFFSET $%d", argCount)
+	args = append(args, offset)
+
+	// Execute query
+	rows, err := db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, 0, fmt.Errorf("failed to query servers: %w", err)
+	}
+	defer rows.Close()
+
+	servers := []map[string]interface{}{}
+	var totalCount int
+
+	for rows.Next() {
+		var serverName string
+		var valueJSON []byte
+		var publishedAt, updatedAt time.Time
+		var rating float64
+		var ratingCount, installCount int
+		var total int
+
+		err := rows.Scan(
+			&serverName,
+			&valueJSON,
+			&publishedAt,
+			&updatedAt,
+			&rating,
+			&ratingCount,
+			&installCount,
+			&total,
+		)
+		if err != nil {
+			return nil, 0, fmt.Errorf("failed to scan server: %w", err)
+		}
+
+		// Parse the JSON value
+		var value map[string]interface{}
+		if err := json.Unmarshal(valueJSON, &value); err != nil {
+			return nil, 0, fmt.Errorf("failed to parse server JSON: %w", err)
+		}
+
+		// Add enhanced fields
+		value["id"] = serverName  // Use server_name as the ID
+		value["name"] = serverName
+		value["published_at"] = publishedAt
+		value["updated_at"] = updatedAt
+		value["stats"] = map[string]interface{}{
+			"rating":         rating,
+			"rating_count":   ratingCount,
+			"install_count":  installCount,
+		}
+
+		// Calculate quality score
+		value["quality_score"] = calculateQualityScore(rating, ratingCount, installCount)
+
+		// Add badges
+		value["badges"] = generateBadges(value, rating, ratingCount, installCount)
+
+		servers = append(servers, value)
+		totalCount = total // Will be the same for all rows
+	}
+
+	if err = rows.Err(); err != nil {
+		return nil, 0, fmt.Errorf("error iterating servers: %w", err)
+	}
+
+	return servers, totalCount, nil
+}
+
+// calculateQualityScore calculates a quality score for a server
+func calculateQualityScore(rating float64, ratingCount, installCount int) float64 {
+	// Weighted formula for quality
+	// Rating contributes 40%, review count 30%, installs 30%
+	ratingScore := rating * 8 // Max 40 (5 * 8)
+
+	// Logarithmic scaling for counts to prevent domination by outliers
+	reviewScore := 0.0
+	if ratingCount > 0 {
+		reviewScore = math.Min(math.Log10(float64(ratingCount)+1)*10, 30) // Max 30
+	}
+
+	installScore := 0.0
+	if installCount > 0 {
+		installScore = math.Min(math.Log10(float64(installCount)+1)*10, 30) // Max 30
+	}
+
+	return math.Round((ratingScore+reviewScore+installScore)*10) / 10 // Round to 1 decimal
+}
+
+// generateBadges generates achievement badges for a server
+func generateBadges(server map[string]interface{}, rating float64, ratingCount, installCount int) []map[string]string {
+	badges := []map[string]string{}
+
+	// Top Rated badge
+	if rating >= 4.5 && ratingCount >= 10 {
+		badges = append(badges, map[string]string{
+			"type":  "top_rated",
+			"label": "Top Rated",
+			"icon":  "⭐",
+		})
+	}
+
+	// Popular badge
+	if installCount >= 100 {
+		badges = append(badges, map[string]string{
+			"type":  "popular",
+			"label": "Popular",
+			"icon":  "🔥",
+		})
+	}
+
+	// Well Reviewed badge
+	if ratingCount >= 50 {
+		badges = append(badges, map[string]string{
+			"type":  "well_reviewed",
+			"label": "Well Reviewed",
+			"icon":  "💬",
+		})
+	}
+
+	// Official badge (if from modelcontextprotocol org)
+	if packages, ok := server["packages"].([]interface{}); ok && len(packages) > 0 {
+		for _, pkg := range packages {
+			if pkgMap, ok := pkg.(map[string]interface{}); ok {
+				if identifier, ok := pkgMap["identifier"].(string); ok {
+					if strings.HasPrefix(identifier, "@modelcontextprotocol/") {
+						badges = append(badges, map[string]string{
+							"type":  "official",
+							"label": "Official",
+							"icon":  "✓",
+						})
+						break
+					}
+				}
+			}
+		}
+	}
+
+	// New badge (created in last 7 days)
+	if publishedAt, ok := server["published_at"].(time.Time); ok {
+		if time.Since(publishedAt) < 7*24*time.Hour {
+			badges = append(badges, map[string]string{
+				"type":  "new",
+				"label": "New",
+				"icon":  "🆕",
+			})
+		}
+	}
+
+	return badges
 }

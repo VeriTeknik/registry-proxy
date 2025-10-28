@@ -32,16 +32,24 @@ func main() {
 	// Initialize cache
 	proxyCache := cache.NewCache(cacheExpiration, cacheCleanup)
 
-	// Initialize database connection
+	// Initialize database connections
 	database, err := db.NewPostgresDB()
 	if err != nil {
 		log.Fatalf("Failed to connect to database: %v", err)
 	}
 	defer database.Close()
 
+	// Initialize registry database connection
+	registryDB, err := db.NewRegistryDB()
+	if err != nil {
+		log.Fatalf("Failed to connect to registry database: %v", err)
+	}
+	defer registryDB.Close()
+
 	// Initialize handlers
 	serversHandler := handlers.NewServersHandler(registryURL, proxyCache, database)
 	ratingsHandler := handlers.NewRatingsHandler(database)
+	enhancedHandler := handlers.NewEnhancedHandler(registryDB, database)
 	passthroughHandler, err := handlers.NewPassthroughHandler(registryURL, proxyCache)
 	if err != nil {
 		log.Fatalf("Failed to create passthrough handler: %v", err)
@@ -111,9 +119,14 @@ func main() {
 
 	// Publish endpoint (proxy to upstream)
 	mux.HandleFunc("/v0/publish", passthroughHandler.ProxySpecificEndpoint())
-	
+
 	// Cache refresh endpoint (our custom endpoint)
 	mux.HandleFunc("/v0/cache/refresh", serversHandler.HandleRefresh)
+
+	// Enhanced endpoints (NEW - query registry database directly)
+	mux.HandleFunc("/v0/enhanced/servers", enhancedHandler.HandleEnhancedServers)
+	mux.HandleFunc("/v0/enhanced/stats/aggregate", enhancedHandler.HandleStats)
+	mux.HandleFunc("/v0/enhanced/stats/trending", enhancedHandler.HandleTrending)
 
 	// Catch-all for any other endpoints
 	mux.HandleFunc("/", passthroughHandler.ProxySpecificEndpoint())
