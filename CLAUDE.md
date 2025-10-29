@@ -7,19 +7,19 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 This is the main infrastructure repository containing:
 - `/registry/` - Submodule pointing to https://github.com/VeriTeknik/registry (upstream MCP Registry)
 - `/proxy/` - Enhanced proxy service that adds filtering/sorting capabilities
-- `/main/` - Infrastructure configuration (Traefik, MongoDB, scripts)
+- `/main/` - Infrastructure configuration (Traefik, PostgreSQL, scripts)
 
 ## Project Overview
 
 The plugged.in MCP Registry infrastructure provides:
 1. **Core Registry** (submodule) - The official MCP Registry from modelcontextprotocol
 2. **Enhanced Proxy** - Adds filtering, sorting, and enriched responses
-3. **Infrastructure** - Traefik reverse proxy, MongoDB, deployment scripts
+3. **Infrastructure** - Traefik reverse proxy, PostgreSQL database, deployment scripts
 
 ## Architecture
 
 ```
-User Request → registry.plugged.in → Proxy Service → Core Registry → MongoDB
+User Request → registry.plugged.in → Proxy Service → Core Registry → PostgreSQL
                                           ↓
                                     Enhanced Features:
                                     - Filtering by registry_name
@@ -72,7 +72,7 @@ docker compose -f docker-compose-replace.yml up -d
 ```bash
 docker logs -f registry-proxy  # Proxy logs
 docker logs -f registry        # Core registry logs
-docker logs -f mongodb         # Database logs
+docker logs -f postgresql      # Database logs
 ```
 
 ### Test Endpoints
@@ -96,7 +96,7 @@ curl "https://registry.plugged.in/v0/servers?search=mcp"
 
 #### Registry Service (.env)
 ```bash
-MCP_REGISTRY_DATABASE_URL=mongodb://mongodb:27017
+MCP_REGISTRY_DATABASE_URL=postgres://mcpregistry:password@postgresql:5432/mcp_registry
 MCP_REGISTRY_ENVIRONMENT=production
 MCP_REGISTRY_SEED_IMPORT=true
 MCP_REGISTRY_GITHUB_CLIENT_ID=<your_github_client_id>
@@ -121,12 +121,12 @@ environment:
 1. **Proxy as Main Interface**: All external traffic goes through the proxy
 2. **Registry Internal Only**: Core registry not exposed publicly
 3. **Traefik Routing**: Handles SSL and routes registry.plugged.in to proxy
-4. **MongoDB Shared**: Both services use the same MongoDB instance
+4. **PostgreSQL Database**: All services use the same PostgreSQL instance
 
 ## Security Considerations
 
 - GitHub OAuth credentials stored in .env (not in git)
-- MongoDB not exposed externally
+- PostgreSQL not exposed externally (accessible only via Docker network)
 - All traffic SSL/TLS encrypted via Traefik
 - Registry publish endpoint requires valid GitHub token
 

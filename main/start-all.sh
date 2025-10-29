@@ -5,12 +5,12 @@ echo "Starting plugged.in infrastructure..."
 # Ensure traefik network exists
 docker network create traefik 2>/dev/null || true
 
-# Start infrastructure services (Traefik + MongoDB)
+# Start infrastructure services (Traefik + PostgreSQL)
 echo "Starting infrastructure services..."
 docker compose up -d
 
-# Wait for MongoDB to be ready
-echo "Waiting for MongoDB to be ready..."
+# Wait for PostgreSQL to be ready
+echo "Waiting for PostgreSQL to be ready..."
 sleep 5
 
 # Start Registry (internal)
@@ -57,4 +57,4 @@ echo ""
 echo "To view logs:"
 echo "  docker logs -f registry       # Core registry"
 echo "  docker logs -f registry-proxy # Proxy service"
-echo "  docker logs -f mongodb        # Database"
+echo "  docker logs -f postgresql     # Database"
