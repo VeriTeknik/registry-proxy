@@ -48,7 +48,7 @@ func main() {
 
 	// Initialize handlers
 	serversHandler := handlers.NewServersHandler(registryURL, proxyCache, database, registryDB)
-	ratingsHandler := handlers.NewRatingsHandler(database)
+	ratingsHandler := handlers.NewRatingsHandler(database, proxyCache)
 	enhancedHandler := handlers.NewEnhancedHandler(registryDB, database)
 	passthroughHandler, err := handlers.NewPassthroughHandler(registryURL, proxyCache)
 	if err != nil {

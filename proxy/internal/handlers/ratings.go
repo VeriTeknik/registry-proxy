@@ -14,13 +14,20 @@ import (
 
 // RatingsHandler handles rating and installation tracking
 type RatingsHandler struct {
-	db *db.DB
+	db    *db.DB
+	cache Cache
+}
+
+// Cache interface for invalidating cached server data
+type Cache interface {
+	Clear()
 }
 
 // NewRatingsHandler creates a new ratings handler
-func NewRatingsHandler(database *db.DB) *RatingsHandler {
+func NewRatingsHandler(database *db.DB, cache Cache) *RatingsHandler {
 	return &RatingsHandler{
-		db: database,
+		db:    database,
+		cache: cache,
 	}
 }
 
@@ -90,6 +97,12 @@ func (h *RatingsHandler) HandleRate(w http.ResponseWriter, r *http.Request) {
 		log.Printf("Failed to save rating: %v", err)
 		http.Error(w, "Failed to save rating", http.StatusInternalServerError)
 		return
+	}
+
+	// Invalidate cache so updated stats are immediately visible to all users
+	if h.cache != nil {
+		h.cache.Clear()
+		log.Printf("Cache cleared after rating submission for server: %s", serverID)
 	}
 
 	// Get updated stats
