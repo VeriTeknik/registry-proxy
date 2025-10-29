@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/veriteknik/registry-proxy/internal/db"
 )
@@ -390,5 +391,74 @@ func (h *RatingsHandler) HandleGetFeedback(w http.ResponseWriter, r *http.Reques
 		"has_more":    hasMore,
 	}); err != nil {
 		log.Printf("Error encoding feedback response: %v", err)
+	}
+}
+
+// HandleGetUserRating handles GET /v0/servers/:id/rating/:userId
+func (h *RatingsHandler) HandleGetUserRating(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	// Extract server ID and user ID from path: /v0/servers/{id}/rating/{userId}
+	path := strings.TrimPrefix(r.URL.Path, "/v0/servers/")
+	parts := strings.Split(path, "/")
+
+	if len(parts) < 3 || parts[len(parts)-2] != "rating" {
+		http.Error(w, "Invalid path", http.StatusBadRequest)
+		return
+	}
+
+	// Server ID could contain slashes (e.g., io.github.user/repo)
+	// So we join all parts except the last two (rating/userId)
+	serverParts := parts[:len(parts)-2]
+	serverID := strings.Join(serverParts, "/")
+	userID := parts[len(parts)-1]
+
+	// Get user's rating from database
+	ctx := r.Context()
+	var rating int
+	var comment string
+	var createdAt time.Time
+
+	query := `
+		SELECT rating, comment, created_at
+		FROM proxy_user_ratings
+		WHERE server_id = $1 AND user_id = $2
+		LIMIT 1
+	`
+
+	err := h.db.QueryRowContext(ctx, query, serverID, userID).Scan(&rating, &comment, &createdAt)
+	if err != nil {
+		if err.Error() == "sql: no rows in result set" {
+			// User hasn't rated yet
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusNotFound)
+			if err := json.NewEncoder(w).Encode(map[string]interface{}{
+				"has_rated": false,
+			}); err != nil {
+				log.Printf("Error encoding response: %v", err)
+			}
+			return
+		}
+
+		log.Printf("Database error checking user rating: %v", err)
+		http.Error(w, "Database error", http.StatusInternalServerError)
+		return
+	}
+
+	// Return user's rating
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(map[string]interface{}{
+		"has_rated": true,
+		"feedback": map[string]interface{}{
+			"id":         fmt.Sprintf("%s:%s", serverID, userID),
+			"rating":     rating,
+			"comment":    comment,
+			"created_at": createdAt.Format(time.RFC3339),
+		},
+	}); err != nil {
+		log.Printf("Error encoding response: %v", err)
 	}
 }

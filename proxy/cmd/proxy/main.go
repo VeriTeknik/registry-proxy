@@ -70,23 +70,30 @@ func main() {
 		passthroughHandler.ProxySpecificEndpoint().ServeHTTP(w, r)
 	})
 
-	// Enriched servers endpoint (only for GET requests)
+	// Enriched servers endpoint (only for GET /v0/servers exactly)
 	mux.HandleFunc("/v0/servers", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodGet && r.URL.Path == "/v0/servers" {
 			// Use our enriched handler for list
 			serversHandler.HandleList(w, r)
-		} else {
-			// Proxy everything else (like /v0/servers/{id})
+		} else if r.URL.Path == "/v0/servers" {
+			// Other methods on /v0/servers (POST for publish, etc.) - proxy to upstream
 			passthroughHandler.ProxySpecificEndpoint().ServeHTTP(w, r)
 		}
+		// If path is not exactly "/v0/servers", let it fall through to the "/v0/servers/" handler
 	})
 
-	// Rating endpoints
+	// Server detail and rating endpoints
 	mux.HandleFunc("/v0/servers/", func(w http.ResponseWriter, r *http.Request) {
 		path := strings.TrimPrefix(r.URL.Path, "/v0/servers/")
 		parts := strings.Split(path, "/")
 
-		// Check if the last part of the path is a rating endpoint
+		// Check if it's a user rating endpoint: /servers/{id}/rating/{userId}
+		if len(parts) >= 3 && parts[len(parts)-2] == "rating" {
+			ratingsHandler.HandleGetUserRating(w, r)
+			return
+		}
+
+		// Check if the last part of the path is a special endpoint
 		if len(parts) >= 2 {
 			lastPart := parts[len(parts)-1]
 			switch lastPart {
@@ -113,7 +120,14 @@ func main() {
 			}
 		}
 
-		// If not a rating endpoint, proxy to upstream
+		// If it's a GET request for a server ID (not ending with special endpoint), use our handler
+		// Server IDs are like "io.github.user/repo" which has 2 parts when split by "/"
+		if r.Method == http.MethodGet && len(parts) <= 2 && parts[0] != "" {
+			enhancedHandler.HandleServerDetail(w, r)
+			return
+		}
+
+		// If not a rating endpoint or server detail, proxy to upstream
 		passthroughHandler.ProxySpecificEndpoint().ServeHTTP(w, r)
 	})
 

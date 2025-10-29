@@ -101,12 +101,13 @@ func (db *DB) UpsertRating(ctx context.Context, serverID, userID string, rating 
 	_, err = tx.ExecContext(ctx, `
 		INSERT INTO proxy_server_stats (server_id, rating, rating_count, updated_at)
 		SELECT
-			$1,
+			server_id,
 			AVG(rating)::numeric(3,2),
 			COUNT(*)::integer,
 			NOW()
 		FROM proxy_user_ratings
 		WHERE server_id = $1
+		GROUP BY server_id
 		ON CONFLICT (server_id)
 		DO UPDATE SET
 			rating = EXCLUDED.rating,
@@ -145,9 +146,10 @@ func (db *DB) TrackInstallation(ctx context.Context, serverID, userID, source, v
 	// Update installation count in server_stats
 	_, err = tx.ExecContext(ctx, `
 		INSERT INTO proxy_server_stats (server_id, installation_count, updated_at)
-		SELECT $1, COUNT(DISTINCT user_id)::integer, NOW()
+		SELECT server_id, COUNT(DISTINCT user_id)::integer, NOW()
 		FROM proxy_user_installations
 		WHERE server_id = $1
+		GROUP BY server_id
 		ON CONFLICT (server_id)
 		DO UPDATE SET
 			installation_count = EXCLUDED.installation_count,

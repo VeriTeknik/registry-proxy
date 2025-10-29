@@ -312,6 +312,87 @@ func (h *EnhancedHandler) HandleTrending(w http.ResponseWriter, r *http.Request)
 	}
 }
 
+// HandleServerDetail handles /v0/servers/{id} to get individual server details
+func (h *EnhancedHandler) HandleServerDetail(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	// Extract server ID from path: /v0/servers/{id}
+	path := strings.TrimPrefix(r.URL.Path, "/v0/servers/")
+	serverID := path
+	if serverID == "" {
+		http.Error(w, "Invalid server ID", http.StatusBadRequest)
+		return
+	}
+
+	// Query the registry database for this specific server
+	query := `
+		SELECT
+			s.server_name,
+			s.value,
+			COALESCE(ss.rating, 0) as rating,
+			COALESCE(ss.rating_count, 0) as rating_count,
+			COALESCE(ss.installation_count, 0) as installation_count
+		FROM servers s
+		LEFT JOIN proxy_server_stats ss ON s.server_name = ss.server_id
+		WHERE s.server_name = $1 AND s.is_latest = true
+		LIMIT 1
+	`
+
+	ctx := r.Context()
+	rows, err := h.registryDB.QueryContext(ctx, query, serverID)
+	if err != nil {
+		log.Printf("Database query error: %v", err)
+		http.Error(w, "Database error", http.StatusInternalServerError)
+		return
+	}
+	defer rows.Close()
+
+	if !rows.Next() {
+		http.Error(w, "Server not found", http.StatusNotFound)
+		return
+	}
+
+	var (
+		serverName   string
+		valueJSON    []byte
+		rating       float64
+		ratingCount  int
+		installCount int
+	)
+
+	if err := rows.Scan(&serverName, &valueJSON, &rating, &ratingCount, &installCount); err != nil {
+		log.Printf("Error scanning row: %v", err)
+		http.Error(w, "Error reading server data", http.StatusInternalServerError)
+		return
+	}
+
+	// Parse the JSON value
+	var value map[string]interface{}
+	if err := json.Unmarshal(valueJSON, &value); err != nil {
+		log.Printf("Error parsing server JSON: %v", err)
+		http.Error(w, "Error parsing server data", http.StatusInternalServerError)
+		return
+	}
+
+	// Add enhanced fields
+	value["id"] = serverName
+	value["name"] = serverName
+	value["stats"] = map[string]interface{}{
+		"rating":        rating,
+		"rating_count":  ratingCount,
+		"install_count": installCount,
+	}
+
+	// Set headers and write response
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(value); err != nil {
+		log.Printf("Error encoding response: %v", err)
+	}
+}
+
 // Helper functions
 func parseInt(s string) int {
 	i, _ := strconv.Atoi(s)
