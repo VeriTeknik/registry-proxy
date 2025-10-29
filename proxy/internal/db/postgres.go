@@ -411,7 +411,7 @@ func (db *DB) QueryServersEnhanced(ctx context.Context, filter ServerFilter, sor
 			conditions = append(conditions, fmt.Sprintf(
 				`EXISTS (
 					SELECT 1 FROM jsonb_array_elements(value->'packages') p
-					WHERE p->>'registryType' = ANY($%d)
+					WHERE p->>'registry_name' = ANY($%d)
 				)`, argCount))
 			args = append(args, pq.Array(nonRemoteTypes))
 		}
