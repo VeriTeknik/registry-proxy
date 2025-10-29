@@ -33,10 +33,13 @@ type Transport struct {
 
 // Argument represents a runtime or package argument
 type Argument struct {
-	Type    string `json:"type"`              // "positional" or "named"
-	Name    string `json:"name,omitempty"`    // For named arguments
-	Value   string `json:"value,omitempty"`   // The argument value
-	Default string `json:"default,omitempty"` // Default value
+	Type        string   `json:"type"`                  // "positional" or "named"
+	Name        string   `json:"name,omitempty"`        // For named arguments
+	Value       string   `json:"value,omitempty"`       // The argument value
+	Default     string   `json:"default,omitempty"`     // Default value
+	Description string   `json:"description,omitempty"` // Description of the argument
+	Choices     []string `json:"choices,omitempty"`     // Valid choices for the argument
+	IsRequired  bool     `json:"is_required,omitempty"` // Whether the argument is required
 }
 
 // Package represents package information
@@ -55,18 +58,39 @@ type Package struct {
 type EnvironmentVariable struct {
 	Description string `json:"description,omitempty"`
 	Name        string `json:"name"`
+	Default     string `json:"default,omitempty"`
+	IsRequired  bool   `json:"is_required,omitempty"`
+	IsSecret    bool   `json:"is_secret,omitempty"`
+}
+
+// RemoteHeader represents a header for remote servers
+type RemoteHeader struct {
+	Name        string `json:"name"`
+	Description string `json:"description,omitempty"`
+	Default     string `json:"default,omitempty"`
+	IsRequired  bool   `json:"is_required,omitempty"`
+	IsSecret    bool   `json:"is_secret,omitempty"`
+}
+
+// Remote represents a remote server configuration
+type Remote struct {
+	TransportType string         `json:"transport_type"` // "sse", "streamable-http", "http"
+	URL           string         `json:"url"`
+	Headers       []RemoteHeader `json:"headers,omitempty"`
 }
 
 // ServerDetail represents detailed server information
 type ServerDetail struct {
 	Server
 	Packages []Package `json:"packages,omitempty"`
+	Remotes  []Remote  `json:"remotes,omitempty"`
 }
 
 // EnrichedServer combines Server with Packages and Stats for the proxy response
 type EnrichedServer struct {
 	Server
 	Packages          []Package `json:"packages,omitempty"`
+	Remotes           []Remote  `json:"remotes,omitempty"`
 	Rating            float64   `json:"rating,omitempty"`
 	RatingCount       int       `json:"rating_count,omitempty"`
 	InstallationCount int       `json:"installation_count,omitempty"`

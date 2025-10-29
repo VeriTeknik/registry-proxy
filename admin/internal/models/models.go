@@ -28,21 +28,27 @@ type VersionDetail struct {
 
 // Package represents package information
 type Package struct {
-	RegistryName         string                 `json:"registry_name" bson:"registry_name"`
-	Name                 string                 `json:"name" bson:"name"`
+	RegistryName         string                 `json:"registryType" bson:"registryType"`
+	Name                 string                 `json:"identifier" bson:"identifier"`
 	Version              string                 `json:"version" bson:"version"`
-	RuntimeHint          string                 `json:"runtime_hint,omitempty" bson:"runtime_hint,omitempty"`
-	EnvironmentVariables []EnvironmentVariable  `json:"environment_variables,omitempty" bson:"environment_variables,omitempty"`
-	PackageArguments     []map[string]any       `json:"package_arguments,omitempty" bson:"package_arguments,omitempty"`
-	RuntimeArguments     []map[string]any       `json:"runtime_arguments,omitempty" bson:"runtime_arguments,omitempty"`
+	RuntimeHint          string                 `json:"runtimeHint,omitempty" bson:"runtimeHint,omitempty"`
+	Transport            *Transport             `json:"transport,omitempty" bson:"transport,omitempty"`
+	EnvironmentVariables []EnvironmentVariable  `json:"environmentVariables,omitempty" bson:"environmentVariables,omitempty"`
+	PackageArguments     []map[string]any       `json:"packageArguments,omitempty" bson:"packageArguments,omitempty"`
+	RuntimeArguments     []map[string]any       `json:"runtimeArguments,omitempty" bson:"runtimeArguments,omitempty"`
+}
+
+// Transport represents transport configuration for a package
+type Transport struct {
+	Type string `json:"type" bson:"type"`
 }
 
 // EnvironmentVariable represents an environment variable
 type EnvironmentVariable struct {
 	Name        string `json:"name" bson:"name"`
 	Description string `json:"description,omitempty" bson:"description,omitempty"`
-	IsRequired  bool   `json:"is_required,omitempty" bson:"is_required,omitempty"`
-	IsSecret    bool   `json:"is_secret,omitempty" bson:"is_secret,omitempty"`
+	IsRequired  bool   `json:"isRequired,omitempty" bson:"isRequired,omitempty"`
+	IsSecret    bool   `json:"isSecret,omitempty" bson:"isSecret,omitempty"`
 }
 
 // Server represents basic server information
@@ -64,7 +70,7 @@ type ServerDetail struct {
 
 // Remote represents remote server configuration
 type Remote struct {
-	TransportType string `json:"transport_type" bson:"transport_type"`
+	TransportType string `json:"type" bson:"type"`
 	URL           string `json:"url" bson:"url"`
 }
 

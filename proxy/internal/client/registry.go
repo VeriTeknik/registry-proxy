@@ -46,15 +46,47 @@ type UpstreamServerWrapper struct {
 			RegistryType string `json:"registryType"`
 			Identifier   string `json:"identifier"`
 			Version      string `json:"version"`
+			RuntimeHint  string `json:"runtimeHint,omitempty"`
 			Transport    struct {
 				Type string `json:"type"` // stdio, sse, http
 			} `json:"transport,omitempty"`
+			PackageArguments []struct {
+				Type        string   `json:"type"`
+				Name        string   `json:"name,omitempty"`
+				Value       string   `json:"value,omitempty"`
+				Description string   `json:"description,omitempty"`
+				Default     string   `json:"default,omitempty"`
+				Choices     []string `json:"choices,omitempty"`
+				IsRequired  bool     `json:"isRequired,omitempty"`
+			} `json:"packageArguments,omitempty"`
+			RuntimeArguments []struct {
+				Type        string   `json:"type"`
+				Name        string   `json:"name,omitempty"`
+				Value       string   `json:"value,omitempty"`
+				Description string   `json:"description,omitempty"`
+				Default     string   `json:"default,omitempty"`
+				Choices     []string `json:"choices,omitempty"`
+				IsRequired  bool     `json:"isRequired,omitempty"`
+			} `json:"runtimeArguments,omitempty"`
 			EnvironmentVariables []struct {
 				Name        string `json:"name"`
 				Description string `json:"description,omitempty"`
-			} `json:"environment_variables,omitempty"`
+				Default     string `json:"default,omitempty"`
+				IsRequired  bool   `json:"isRequired,omitempty"`
+				IsSecret    bool   `json:"isSecret,omitempty"`
+			} `json:"environmentVariables,omitempty"`
 		} `json:"packages,omitempty"`
-		Remotes []interface{} `json:"remotes,omitempty"`
+		Remotes []struct {
+			Type    string `json:"type"` // "sse", "streamable-http", "http"
+			URL     string `json:"url"`
+			Headers []struct {
+				Name        string `json:"name"`
+				Description string `json:"description,omitempty"`
+				Default     string `json:"default,omitempty"`
+				IsRequired  bool   `json:"isRequired,omitempty"`
+				IsSecret    bool   `json:"isSecret,omitempty"`
+			} `json:"headers,omitempty"`
+		} `json:"remotes,omitempty"`
 	} `json:"server"`
 	Meta map[string]interface{} `json:"_meta,omitempty"`
 }
@@ -132,11 +164,15 @@ func convertToEnrichedServer(wrapper UpstreamServerWrapper) models.EnrichedServe
 	// Convert packages
 	packages := make([]models.Package, len(wrapper.Server.Packages))
 	for i, pkg := range wrapper.Server.Packages {
+		// Convert environment variables
 		envVars := make([]models.EnvironmentVariable, len(pkg.EnvironmentVariables))
 		for j, ev := range pkg.EnvironmentVariables {
 			envVars[j] = models.EnvironmentVariable{
 				Name:        ev.Name,
 				Description: ev.Description,
+				Default:     ev.Default,
+				IsRequired:  ev.IsRequired,
+				IsSecret:    ev.IsSecret,
 			}
 		}
 
@@ -148,25 +184,61 @@ func convertToEnrichedServer(wrapper UpstreamServerWrapper) models.EnrichedServe
 			}
 		}
 
-		// Add default runtime arguments based on registry type
-		var runtimeArgs []models.Argument
-		var runtimeHint string
-
-		switch pkg.RegistryType {
-		case "npm":
-			runtimeHint = "npx"
-			// Add -y flag by default for npm packages to auto-install
-			runtimeArgs = []models.Argument{
-				{
-					Type:  "named",
-					Name:  "-y",
-					Value: "",
-				},
+		// Extract package arguments from upstream
+		packageArgs := make([]models.Argument, len(pkg.PackageArguments))
+		for j, arg := range pkg.PackageArguments {
+			packageArgs[j] = models.Argument{
+				Type:        arg.Type,
+				Name:        arg.Name,
+				Value:       arg.Value,
+				Default:     arg.Default,
+				Description: arg.Description,
+				Choices:     arg.Choices,
+				IsRequired:  arg.IsRequired,
 			}
-		case "pypi":
-			runtimeHint = "uvx"
-		case "docker":
-			runtimeHint = "docker"
+		}
+
+		// Extract runtime arguments from upstream (if any) or use defaults
+		var runtimeArgs []models.Argument
+		if len(pkg.RuntimeArguments) > 0 {
+			runtimeArgs = make([]models.Argument, len(pkg.RuntimeArguments))
+			for j, arg := range pkg.RuntimeArguments {
+				runtimeArgs[j] = models.Argument{
+					Type:        arg.Type,
+					Name:        arg.Name,
+					Value:       arg.Value,
+					Default:     arg.Default,
+					Description: arg.Description,
+					Choices:     arg.Choices,
+					IsRequired:  arg.IsRequired,
+				}
+			}
+		} else {
+			// Only add defaults if upstream doesn't provide them
+			switch pkg.RegistryType {
+			case "npm":
+				// Add -y flag by default for npm packages to auto-install
+				runtimeArgs = []models.Argument{
+					{
+						Type:  "named",
+						Name:  "-y",
+						Value: "",
+					},
+				}
+			}
+		}
+
+		// Use runtime hint from upstream or set defaults
+		runtimeHint := pkg.RuntimeHint
+		if runtimeHint == "" {
+			switch pkg.RegistryType {
+			case "npm":
+				runtimeHint = "npx"
+			case "pypi":
+				runtimeHint = "uvx"
+			case "docker":
+				runtimeHint = "docker"
+			}
 		}
 
 		packages[i] = models.Package{
@@ -176,7 +248,36 @@ func convertToEnrichedServer(wrapper UpstreamServerWrapper) models.EnrichedServe
 			Transport:            transport,
 			RuntimeHint:          runtimeHint,
 			RuntimeArguments:     runtimeArgs,
+			PackageArguments:     packageArgs,
 			EnvironmentVariables: envVars,
+		}
+	}
+
+	// Convert remotes
+	remotes := make([]models.Remote, len(wrapper.Server.Remotes))
+	for i, remote := range wrapper.Server.Remotes {
+		// Convert headers
+		headers := make([]models.RemoteHeader, len(remote.Headers))
+		for j, header := range remote.Headers {
+			headers[j] = models.RemoteHeader{
+				Name:        header.Name,
+				Description: header.Description,
+				Default:     header.Default,
+				IsRequired:  header.IsRequired,
+				IsSecret:    header.IsSecret,
+			}
+		}
+
+		// Map transport type (handle variations)
+		transportType := remote.Type
+		if transportType == "streamable-http" || transportType == "streamable_http" || transportType == "streamable" {
+			transportType = "streamable-http"
+		}
+
+		remotes[i] = models.Remote{
+			TransportType: transportType,
+			URL:           remote.URL,
+			Headers:       headers,
 		}
 	}
 
@@ -206,6 +307,7 @@ func convertToEnrichedServer(wrapper UpstreamServerWrapper) models.EnrichedServe
 			},
 		},
 		Packages: packages,
+		Remotes:  remotes,
 	}
 }
 

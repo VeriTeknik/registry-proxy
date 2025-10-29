@@ -97,8 +97,12 @@ type OfficialServer struct {
 type OfficialPackage struct {
 	RegistryType         string                        `json:"registryType"`
 	Identifier           string                        `json:"identifier"`
+	Version              string                        `json:"version,omitempty"`
+	RuntimeHint          string                        `json:"runtimeHint,omitempty"`
 	Transport            map[string]interface{}        `json:"transport,omitempty"`
 	EnvironmentVariables []models.EnvironmentVariable  `json:"environmentVariables,omitempty"`
+	PackageArguments     []map[string]any              `json:"packageArguments,omitempty"`
+	RuntimeArguments     []map[string]any              `json:"runtimeArguments,omitempty"`
 }
 
 // OfficialRemote represents a remote from the official registry
@@ -365,10 +369,23 @@ func convertOfficialToServerDetail(official *OfficialServer) models.ServerDetail
 
 	// Convert packages
 	for _, officialPkg := range official.Packages {
+		// Extract transport if present
+		var transport *models.Transport
+		if transportType, ok := officialPkg.Transport["type"].(string); ok && transportType != "" {
+			transport = &models.Transport{
+				Type: transportType,
+			}
+		}
+
 		server.Packages = append(server.Packages, models.Package{
 			RegistryName:         officialPkg.RegistryType,
 			Name:                 officialPkg.Identifier,
+			Version:              officialPkg.Version,
+			RuntimeHint:          officialPkg.RuntimeHint,
+			Transport:            transport,
 			EnvironmentVariables: officialPkg.EnvironmentVariables,
+			PackageArguments:     officialPkg.PackageArguments,
+			RuntimeArguments:     officialPkg.RuntimeArguments,
 		})
 	}
 

@@ -47,7 +47,7 @@ func main() {
 	defer registryDB.Close()
 
 	// Initialize handlers
-	serversHandler := handlers.NewServersHandler(registryURL, proxyCache, database)
+	serversHandler := handlers.NewServersHandler(registryURL, proxyCache, database, registryDB)
 	ratingsHandler := handlers.NewRatingsHandler(database)
 	enhancedHandler := handlers.NewEnhancedHandler(registryDB, database)
 	passthroughHandler, err := handlers.NewPassthroughHandler(registryURL, proxyCache)
