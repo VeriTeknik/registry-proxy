@@ -395,6 +395,80 @@ func (h *ServersHandler) sortServers(servers []models.EnrichedServer, sortBy str
 	return sorted
 }
 
+// HandleDetail handles GET /v0/servers/{id} for individual server details
+func (h *ServersHandler) HandleDetail(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	// Extract server ID from path: /v0/servers/{id}
+	serverID := strings.TrimPrefix(r.URL.Path, "/v0/servers/")
+	if serverID == "" {
+		http.Error(w, "Server ID required", http.StatusBadRequest)
+		return
+	}
+
+	// Query the specific server from registry database
+	query := `
+		SELECT
+			s.server_name,
+			s.value,
+			COALESCE(ss.rating, 0) as rating,
+			COALESCE(ss.rating_count, 0) as rating_count,
+			COALESCE(ss.installation_count, 0) as installation_count
+		FROM servers s
+		LEFT JOIN proxy_server_stats ss ON s.server_name = ss.server_id
+		WHERE s.server_name = $1 AND s.is_latest = true
+		LIMIT 1
+	`
+
+	ctx := r.Context()
+	var (
+		serverName   string
+		valueJSON    []byte
+		rating       float64
+		ratingCount  int
+		installCount int
+	)
+
+	err := h.registryDB.QueryRowContext(ctx, query, serverID).Scan(
+		&serverName, &valueJSON, &rating, &ratingCount, &installCount,
+	)
+	if err != nil {
+		if err.Error() == "sql: no rows in result set" {
+			http.Error(w, "Server not found", http.StatusNotFound)
+			return
+		}
+		log.Printf("Error querying server: %v", err)
+		http.Error(w, "Failed to fetch server", http.StatusInternalServerError)
+		return
+	}
+
+	// Parse JSONB value
+	var serverMap map[string]interface{}
+	if err := json.Unmarshal(valueJSON, &serverMap); err != nil {
+		log.Printf("Error parsing server JSON: %v", err)
+		http.Error(w, "Error parsing server data", http.StatusInternalServerError)
+		return
+	}
+
+	// Add ID field
+	serverMap["id"] = serverName
+
+	// Convert to EnrichedServer with proper field names (snake_case)
+	enriched := h.convertMapToEnrichedServer(serverMap)
+	enriched.Rating = rating
+	enriched.RatingCount = ratingCount
+	enriched.InstallationCount = installCount
+
+	// Return with proper JSON serialization using struct tags
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(enriched); err != nil {
+		log.Printf("Error encoding response: %v", err)
+	}
+}
+
 // HandleRefresh forces a cache refresh
 func (h *ServersHandler) HandleRefresh(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {

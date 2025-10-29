@@ -123,7 +123,7 @@ func main() {
 		// If it's a GET request for a server ID (not ending with special endpoint), use our handler
 		// Server IDs are like "io.github.user/repo" which has 2 parts when split by "/"
 		if r.Method == http.MethodGet && len(parts) <= 2 && parts[0] != "" {
-			enhancedHandler.HandleServerDetail(w, r)
+			serversHandler.HandleDetail(w, r)
 			return
 		}
 
