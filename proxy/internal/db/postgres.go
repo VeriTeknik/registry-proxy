@@ -411,7 +411,7 @@ func (db *DB) QueryServersEnhanced(ctx context.Context, filter ServerFilter, sor
 			conditions = append(conditions, fmt.Sprintf(
 				`EXISTS (
 					SELECT 1 FROM jsonb_array_elements(value->'packages') p
-					WHERE p->>'registry_name' = ANY($%d)
+					WHERE p->>'registryType' = ANY($%d)
 				)`, argCount))
 			args = append(args, pq.Array(nonRemoteTypes))
 		}
@@ -540,6 +540,13 @@ func (db *DB) QueryServersEnhanced(ctx context.Context, filter ServerFilter, sor
 		value["name"] = serverName
 		value["published_at"] = publishedAt
 		value["updated_at"] = updatedAt
+
+		// Add stats fields at top level (expected by frontend)
+		value["rating"] = rating
+		value["rating_count"] = ratingCount
+		value["installation_count"] = installCount
+
+		// Also keep nested stats for backward compatibility
 		value["stats"] = map[string]interface{}{
 			"rating":         rating,
 			"rating_count":   ratingCount,
