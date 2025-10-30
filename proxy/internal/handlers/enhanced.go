@@ -1,20 +1,20 @@
 package handlers
 
 import (
-	"encoding/json"
-	"log"
 	"net/http"
 	"strconv"
-	"strings"
 	"time"
 
 	"github.com/veriteknik/registry-proxy/internal/db"
+	"github.com/veriteknik/registry-proxy/internal/utils"
+	"go.uber.org/zap"
 )
 
 // EnhancedHandler handles enhanced endpoints that query the registry database directly
 type EnhancedHandler struct {
 	registryDB *db.DB
 	proxyDB    *db.DB
+	logger     *zap.Logger
 }
 
 // NewEnhancedHandler creates a new enhanced handler
@@ -22,57 +22,61 @@ func NewEnhancedHandler(registryDB, proxyDB *db.DB) *EnhancedHandler {
 	return &EnhancedHandler{
 		registryDB: registryDB,
 		proxyDB:    proxyDB,
+		logger:     utils.Logger,
 	}
 }
 
 // HandleEnhancedServers handles /v0/enhanced/servers with filtering and sorting
 func (h *EnhancedHandler) HandleEnhancedServers(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+	if !utils.RequireMethod(w, r, http.MethodGet) {
 		return
 	}
 
-	// Parse query parameters
+	// Parse query parameters using utility functions
 	query := r.URL.Query()
 
 	// Create filter from query parameters
 	filter := db.ServerFilter{
-		Search:       query.Get("search"),
-		Category:     query.Get("category"),
-		MinRating:    parseFloat(query.Get("min_rating")),
-		MinInstalls:  parseInt(query.Get("min_installs")),
+		Search:        query.Get("search"),
+		Category:      query.Get("category"),
+		MinRating:     utils.ParseFloatParam(query, "min_rating"),
+		MinInstalls:   utils.ParseIntParam(query, "min_installs", 0, 0),
+		RegistryTypes: utils.ParseList(query, "registry_types"),
+		Tags:          utils.ParseList(query, "tags"),
+		HasTransport:  utils.ParseList(query, "transports"),
 	}
 
-	// Parse registry types (including special "remote" handling)
-	if registryTypes := query.Get("registry_types"); registryTypes != "" {
-		filter.RegistryTypes = strings.Split(registryTypes, ",")
+	// Validate filter
+	filterReq := utils.ServerFilterRequest{
+		Search:        filter.Search,
+		Category:      filter.Category,
+		MinRating:     filter.MinRating,
+		MinInstalls:   filter.MinInstalls,
+		RegistryTypes: filter.RegistryTypes,
+		Tags:          filter.Tags,
+		HasTransport:  filter.HasTransport,
+	}
+	if err := utils.ValidateStruct(&filterReq); err != nil {
+		h.logger.Warn("Invalid filter parameters", zap.Error(err))
+		utils.WriteJSONError(w, "Invalid filter parameters", http.StatusBadRequest)
+		return
 	}
 
-	// Parse tags
-	if tags := query.Get("tags"); tags != "" {
-		filter.Tags = strings.Split(tags, ",")
+	// Parse and validate pagination
+	limit := utils.ParseIntParam(query, "limit", 20, 1000)
+	offset := utils.ParseIntParam(query, "offset", 0, 0)
+
+	paginationReq := utils.PaginationRequest{
+		Limit:  limit,
+		Offset: offset,
+	}
+	if err := utils.ValidateStruct(&paginationReq); err != nil {
+		h.logger.Warn("Invalid pagination parameters", zap.Error(err))
+		utils.WriteJSONError(w, "Invalid pagination parameters", http.StatusBadRequest)
+		return
 	}
 
-	// Parse transport types
-	if transports := query.Get("transports"); transports != "" {
-		filter.HasTransport = strings.Split(transports, ",")
-	}
-
-	// Pagination
-	limit := parseInt(query.Get("limit"))
-	if limit <= 0 {
-		limit = 20 // Default limit
-	}
-	if limit > 1000 {
-		limit = 1000 // Maximum limit for safety
-	}
-
-	offset := parseInt(query.Get("offset"))
-	if offset < 0 {
-		offset = 0
-	}
-
-	// Sorting
+	// Get and validate sort parameter
 	sort := query.Get("sort")
 	if sort == "" {
 		sort = "created"
@@ -81,8 +85,8 @@ func (h *EnhancedHandler) HandleEnhancedServers(w http.ResponseWriter, r *http.R
 	// Query enhanced servers
 	servers, totalCount, err := h.registryDB.QueryServersEnhanced(r.Context(), filter, sort, limit, offset)
 	if err != nil {
-		log.Printf("Error querying enhanced servers: %v", err)
-		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		h.logger.Error("Failed to query enhanced servers", zap.Error(err))
+		utils.WriteJSONError(w, "Internal server error", http.StatusInternalServerError)
 		return
 	}
 
@@ -97,12 +101,11 @@ func (h *EnhancedHandler) HandleEnhancedServers(w http.ResponseWriter, r *http.R
 	}
 
 	// Set headers
-	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("X-Total-Count", strconv.Itoa(totalCount))
 
-	// Write response
-	if err := json.NewEncoder(w).Encode(response); err != nil {
-		log.Printf("Error encoding response: %v", err)
+	// Write JSON response
+	if err := utils.WriteJSON(w, http.StatusOK, response); err != nil {
+		h.logger.Error("Failed to write response", zap.Error(err))
 	}
 }
 
@@ -314,16 +317,18 @@ func (h *EnhancedHandler) HandleTrending(w http.ResponseWriter, r *http.Request)
 
 // HandleServerDetail handles /v0/servers/{id} to get individual server details
 func (h *EnhancedHandler) HandleServerDetail(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+	if !utils.RequireMethod(w, r, http.MethodGet) {
 		return
 	}
 
-	// Extract server ID from path: /v0/servers/{id}
-	path := strings.TrimPrefix(r.URL.Path, "/v0/servers/")
+	// Extract and validate server ID from path: /v0/servers/{id}
+	path := r.URL.Path[len("/v0/servers/"):]
 	serverID := path
-	if serverID == "" {
-		http.Error(w, "Invalid server ID", http.StatusBadRequest)
+
+	// Validate server ID to prevent path traversal and injection attacks
+	if err := utils.ValidateServerID(serverID); err != nil {
+		h.logger.Warn("Invalid server ID", zap.String("server_id", serverID), zap.Error(err))
+		utils.WriteJSONError(w, "Invalid server ID", http.StatusBadRequest)
 		return
 	}
 
@@ -344,14 +349,14 @@ func (h *EnhancedHandler) HandleServerDetail(w http.ResponseWriter, r *http.Requ
 	ctx := r.Context()
 	rows, err := h.registryDB.QueryContext(ctx, query, serverID)
 	if err != nil {
-		log.Printf("Database query error: %v", err)
-		http.Error(w, "Database error", http.StatusInternalServerError)
+		h.logger.Error("Database query failed", zap.Error(err))
+		utils.WriteJSONError(w, "Internal server error", http.StatusInternalServerError)
 		return
 	}
 	defer rows.Close()
 
 	if !rows.Next() {
-		http.Error(w, "Server not found", http.StatusNotFound)
+		utils.WriteJSONError(w, "Server not found", http.StatusNotFound)
 		return
 	}
 
@@ -364,16 +369,22 @@ func (h *EnhancedHandler) HandleServerDetail(w http.ResponseWriter, r *http.Requ
 	)
 
 	if err := rows.Scan(&serverName, &valueJSON, &rating, &ratingCount, &installCount); err != nil {
-		log.Printf("Error scanning row: %v", err)
-		http.Error(w, "Error reading server data", http.StatusInternalServerError)
+		h.logger.Error("Failed to scan row", zap.Error(err))
+		utils.WriteJSONError(w, "Internal server error", http.StatusInternalServerError)
 		return
 	}
 
-	// Parse the JSON value
+	// Parse and enrich server data using helper
+	stats := db.ServerStats{
+		Rating:            rating,
+		RatingCount:       ratingCount,
+		InstallationCount: installCount,
+	}
+
 	var value map[string]interface{}
 	if err := json.Unmarshal(valueJSON, &value); err != nil {
-		log.Printf("Error parsing server JSON: %v", err)
-		http.Error(w, "Error parsing server data", http.StatusInternalServerError)
+		h.logger.Error("Failed to parse server JSON", zap.Error(err))
+		utils.WriteJSONError(w, "Internal server error", http.StatusInternalServerError)
 		return
 	}
 
@@ -386,9 +397,8 @@ func (h *EnhancedHandler) HandleServerDetail(w http.ResponseWriter, r *http.Requ
 		"install_count": installCount,
 	}
 
-	// Set headers and write response
-	w.Header().Set("Content-Type", "application/json")
-	if err := json.NewEncoder(w).Encode(value); err != nil {
+	// Write JSON response
+	if err := utils.WriteJSON(w, http.StatusOK, value); err != nil {
 		log.Printf("Error encoding response: %v", err)
 	}
 }

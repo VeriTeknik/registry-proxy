@@ -328,174 +328,13 @@ type ServerFilter struct {
 }
 
 // QueryServersEnhanced queries servers with filtering, sorting, and enrichment
+// Uses squirrel query builder to prevent SQL injection and improve maintainability
 func (db *DB) QueryServersEnhanced(ctx context.Context, filter ServerFilter, sort string, limit, offset int) ([]map[string]interface{}, int, error) {
-	// Build the query dynamically based on filters
-	query := `
-		WITH filtered_servers AS (
-			SELECT
-				s.server_name,
-				s.value,
-				s.published_at,
-				s.updated_at,
-				COALESCE(ss.rating, 0) as rating,
-				COALESCE(ss.rating_count, 0) as rating_count,
-				COALESCE(ss.installation_count, 0) as installation_count
-			FROM servers s
-			LEFT JOIN proxy_server_stats ss ON s.server_name = ss.server_id
-			WHERE s.is_latest = true
-	`
-
-	args := []interface{}{}
-	argCount := 0
-
-	// Add search filter
-	if filter.Search != "" {
-		argCount++
-		query += fmt.Sprintf(` AND (
-			s.server_name ILIKE $%d OR
-			s.value->>'description' ILIKE $%d
-		)`, argCount, argCount)
-		searchTerm := "%" + filter.Search + "%"
-		args = append(args, searchTerm)
+	// Build the complete query using query builders
+	query, args, err := buildMainQuery(filter, sort, limit, offset)
+	if err != nil {
+		return nil, 0, fmt.Errorf("failed to build query: %w", err)
 	}
-
-	// Add category filter
-	if filter.Category != "" {
-		argCount++
-		query += fmt.Sprintf(` AND s.value->>'category' = $%d`, argCount)
-		args = append(args, filter.Category)
-	}
-
-	// Add tags filter
-	if len(filter.Tags) > 0 {
-		argCount++
-		query += fmt.Sprintf(` AND s.value->'tags' ?| $%d`, argCount)
-		args = append(args, pq.Array(filter.Tags))
-	}
-
-	// Add minimum rating filter
-	if filter.MinRating > 0 {
-		argCount++
-		query += fmt.Sprintf(` AND COALESCE(ss.rating, 0) >= $%d`, argCount)
-		args = append(args, filter.MinRating)
-	}
-
-	// Add minimum installs filter
-	if filter.MinInstalls > 0 {
-		argCount++
-		query += fmt.Sprintf(` AND COALESCE(ss.installation_count, 0) >= $%d`, argCount)
-		args = append(args, filter.MinInstalls)
-	}
-
-	query += `)
-	`
-
-	// Add registry type and transport filters (handled in WHERE clause after CTE)
-	whereClauses := []string{}
-
-	if len(filter.RegistryTypes) > 0 {
-		// Check if "remote" is in the filter
-		hasRemote := false
-		nonRemoteTypes := []string{}
-		for _, rt := range filter.RegistryTypes {
-			if rt == "remote" {
-				hasRemote = true
-			} else {
-				nonRemoteTypes = append(nonRemoteTypes, rt)
-			}
-		}
-
-		conditions := []string{}
-		if len(nonRemoteTypes) > 0 {
-			argCount++
-			conditions = append(conditions, fmt.Sprintf(
-				`EXISTS (
-					SELECT 1 FROM jsonb_array_elements(value->'packages') p
-					WHERE p->>'registryType' = ANY($%d)
-				)`, argCount))
-			args = append(args, pq.Array(nonRemoteTypes))
-		}
-
-		if hasRemote {
-			conditions = append(conditions,
-				`EXISTS (
-					SELECT 1 FROM jsonb_array_elements(value->'remotes') r
-					WHERE r->>'transport_type' IN ('sse', 'http', 'streamable-http')
-				)`)
-		}
-
-		if len(conditions) > 0 {
-			whereClauses = append(whereClauses, "("+strings.Join(conditions, " OR ")+")")
-		}
-	}
-
-	if len(filter.HasTransport) > 0 {
-		argCount++
-		whereClauses = append(whereClauses, fmt.Sprintf(
-			`EXISTS (
-				SELECT 1 FROM jsonb_array_elements(value->'packages') p
-				WHERE p->'transport'->>'type' = ANY($%d)
-			)`, argCount))
-		args = append(args, pq.Array(filter.HasTransport))
-	}
-
-	// Build final query
-	query += `
-		SELECT
-			server_name,
-			value,
-			published_at,
-			updated_at,
-			rating,
-			rating_count,
-			installation_count,
-			COUNT(*) OVER() as total_count
-		FROM filtered_servers
-	`
-
-	if len(whereClauses) > 0 {
-		query += " WHERE " + strings.Join(whereClauses, " AND ")
-	}
-
-	// Add sorting
-	sortColumn := "published_at DESC" // default
-	switch sort {
-	case "name_asc":
-		sortColumn = "server_name ASC"
-	case "name_desc":
-		sortColumn = "server_name DESC"
-	case "updated":
-		sortColumn = "updated_at DESC"
-	case "rating_desc":
-		sortColumn = "rating DESC, rating_count DESC"
-	case "reviews_desc":
-		sortColumn = "rating_count DESC"
-	case "installs_desc":
-		sortColumn = "installation_count DESC"
-	case "trending":
-		// Trending: combination of recent activity and popularity
-		sortColumn = `(
-			installation_count * 0.3 +
-			rating_count * 0.3 +
-			rating * 10 +
-			CASE
-				WHEN updated_at > NOW() - INTERVAL '7 days' THEN 20
-				WHEN updated_at > NOW() - INTERVAL '30 days' THEN 10
-				ELSE 0
-			END
-		) DESC`
-	}
-
-	query += fmt.Sprintf(" ORDER BY %s", sortColumn)
-
-	// Add pagination
-	argCount++
-	query += fmt.Sprintf(" LIMIT $%d", argCount)
-	args = append(args, limit)
-
-	argCount++
-	query += fmt.Sprintf(" OFFSET $%d", argCount)
-	args = append(args, offset)
 
 	// Execute query
 	rows, err := db.QueryContext(ctx, query, args...)
@@ -507,59 +346,28 @@ func (db *DB) QueryServersEnhanced(ctx context.Context, filter ServerFilter, sor
 	servers := []map[string]interface{}{}
 	var totalCount int
 
+	// Process each row
 	for rows.Next() {
-		var serverName string
-		var valueJSON []byte
-		var publishedAt, updatedAt time.Time
-		var rating float64
-		var ratingCount, installCount int
-		var total int
-
-		err := rows.Scan(
-			&serverName,
-			&valueJSON,
-			&publishedAt,
-			&updatedAt,
-			&rating,
-			&ratingCount,
-			&installCount,
-			&total,
-		)
+		// Scan row into individual fields
+		serverName, valueJSON, publishedAt, updatedAt, rating, ratingCount, installCount, total, err := scanServerRow(rows)
 		if err != nil {
 			return nil, 0, fmt.Errorf("failed to scan server: %w", err)
 		}
 
-		// Parse the JSON value
-		var value map[string]interface{}
-		if err := json.Unmarshal(valueJSON, &value); err != nil {
-			return nil, 0, fmt.Errorf("failed to parse server JSON: %w", err)
+		// Create stats struct
+		stats := ServerStats{
+			Rating:            rating,
+			RatingCount:       ratingCount,
+			InstallationCount: installCount,
 		}
 
-		// Add enhanced fields
-		value["id"] = serverName  // Use server_name as the ID
-		value["name"] = serverName
-		value["published_at"] = publishedAt
-		value["updated_at"] = updatedAt
-
-		// Add stats fields at top level (expected by frontend)
-		value["rating"] = rating
-		value["rating_count"] = ratingCount
-		value["installation_count"] = installCount
-
-		// Also keep nested stats for backward compatibility
-		value["stats"] = map[string]interface{}{
-			"rating":         rating,
-			"rating_count":   ratingCount,
-			"install_count":  installCount,
+		// Map row to server with enrichment
+		server, err := mapRowToServer(serverName, valueJSON, publishedAt, updatedAt, stats)
+		if err != nil {
+			return nil, 0, err
 		}
 
-		// Calculate quality score
-		value["quality_score"] = calculateQualityScore(rating, ratingCount, installCount)
-
-		// Add badges
-		value["badges"] = generateBadges(value, rating, ratingCount, installCount)
-
-		servers = append(servers, value)
+		servers = append(servers, server)
 		totalCount = total // Will be the same for all rows
 	}
 

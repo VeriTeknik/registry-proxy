@@ -219,9 +219,11 @@ The PostgreSQL query was using `registryType` (camelCase) but the actual JSON fi
 
 If issues occur during deployment:
 - Check logs: `docker logs registry-proxy`
-- Verify database connectivity: `docker exec registry-proxy ping mongodb`
+- Verify database connectivity: `docker exec registry-proxy pg_isready -h postgresql -U mcpregistry`
 - Test endpoint directly: `curl localhost:8090/v0/enhanced/servers`
 - Contact: [support contact]
+
+**Note**: The system has migrated from MongoDB to PostgreSQL. All database operations now use PostgreSQL.
 
 ## Changelog
 
