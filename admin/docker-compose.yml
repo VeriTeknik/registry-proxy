@@ -16,8 +16,7 @@ services:
       - .env
     environment:
       - ADMIN_PORT=8092
-      - MONGODB_URL=mongodb://mongodb:27017
-      - MONGODB_DATABASE=mcp-registry
+      - POSTGRES_URL=postgres://mcpregistry:pluggedin2024secure@postgresql:5432/mcp_registry
     networks:
       - default
       - traefik

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"net/http"
@@ -12,6 +13,8 @@ import (
 	"github.com/veriteknik/registry-proxy/internal/db"
 	"github.com/veriteknik/registry-proxy/internal/handlers"
 	"github.com/veriteknik/registry-proxy/internal/middleware"
+	"github.com/veriteknik/registry-proxy/internal/utils"
+	"go.uber.org/zap"
 )
 
 func main() {
@@ -32,16 +35,24 @@ func main() {
 	// Initialize cache
 	proxyCache := cache.NewCache(cacheExpiration, cacheCleanup)
 
-	// Initialize database connection
+	// Initialize database connections
 	database, err := db.NewPostgresDB()
 	if err != nil {
 		log.Fatalf("Failed to connect to database: %v", err)
 	}
 	defer database.Close()
 
+	// Initialize registry database connection
+	registryDB, err := db.NewRegistryDB()
+	if err != nil {
+		log.Fatalf("Failed to connect to registry database: %v", err)
+	}
+	defer registryDB.Close()
+
 	// Initialize handlers
-	serversHandler := handlers.NewServersHandler(registryURL, proxyCache, database)
-	ratingsHandler := handlers.NewRatingsHandler(database)
+	serversHandler := handlers.NewServersHandler(registryURL, proxyCache, database, registryDB)
+	ratingsHandler := handlers.NewRatingsHandler(database, proxyCache)
+	enhancedHandler := handlers.NewEnhancedHandler(registryDB, database)
 	passthroughHandler, err := handlers.NewPassthroughHandler(registryURL, proxyCache)
 	if err != nil {
 		log.Fatalf("Failed to create passthrough handler: %v", err)
@@ -62,23 +73,30 @@ func main() {
 		passthroughHandler.ProxySpecificEndpoint().ServeHTTP(w, r)
 	})
 
-	// Enriched servers endpoint (only for GET requests)
+	// Enriched servers endpoint (only for GET /v0/servers exactly)
 	mux.HandleFunc("/v0/servers", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodGet && r.URL.Path == "/v0/servers" {
 			// Use our enriched handler for list
 			serversHandler.HandleList(w, r)
-		} else {
-			// Proxy everything else (like /v0/servers/{id})
+		} else if r.URL.Path == "/v0/servers" {
+			// Other methods on /v0/servers (POST for publish, etc.) - proxy to upstream
 			passthroughHandler.ProxySpecificEndpoint().ServeHTTP(w, r)
 		}
+		// If path is not exactly "/v0/servers", let it fall through to the "/v0/servers/" handler
 	})
 
-	// Rating endpoints
+	// Server detail and rating endpoints
 	mux.HandleFunc("/v0/servers/", func(w http.ResponseWriter, r *http.Request) {
 		path := strings.TrimPrefix(r.URL.Path, "/v0/servers/")
 		parts := strings.Split(path, "/")
 
-		// Check if the last part of the path is a rating endpoint
+		// Check if it's a user rating endpoint: /servers/{id}/rating/{userId}
+		if len(parts) >= 3 && parts[len(parts)-2] == "rating" {
+			ratingsHandler.HandleGetUserRating(w, r)
+			return
+		}
+
+		// Check if the last part of the path is a special endpoint
 		if len(parts) >= 2 {
 			lastPart := parts[len(parts)-1]
 			switch lastPart {
@@ -105,41 +123,94 @@ func main() {
 			}
 		}
 
-		// If not a rating endpoint, proxy to upstream
+		// If it's a GET request for a server ID (not ending with special endpoint), use our handler
+		// Server IDs are like "io.github.user/repo" which has 2 parts when split by "/"
+		if r.Method == http.MethodGet && len(parts) <= 2 && parts[0] != "" {
+			serversHandler.HandleDetail(w, r)
+			return
+		}
+
+		// If not a rating endpoint or server detail, proxy to upstream
 		passthroughHandler.ProxySpecificEndpoint().ServeHTTP(w, r)
 	})
 
 	// Publish endpoint (proxy to upstream)
 	mux.HandleFunc("/v0/publish", passthroughHandler.ProxySpecificEndpoint())
-	
+
 	// Cache refresh endpoint (our custom endpoint)
 	mux.HandleFunc("/v0/cache/refresh", serversHandler.HandleRefresh)
+
+	// Enhanced endpoints (NEW - query registry database directly)
+	mux.HandleFunc("/v0/enhanced/servers", enhancedHandler.HandleEnhancedServers)
+	mux.HandleFunc("/v0/enhanced/stats/aggregate", enhancedHandler.HandleStats)
+	mux.HandleFunc("/v0/enhanced/stats/trending", enhancedHandler.HandleTrending)
 
 	// Catch-all for any other endpoints
 	mux.HandleFunc("/", passthroughHandler.ProxySpecificEndpoint())
 
-	// CORS middleware
-	handler := corsMiddleware(mux)
+	// Apply middleware stack: timeout -> CORS -> routes
+	handler := timeoutMiddleware(corsMiddleware(mux))
 
 	// Start server
 	addr := fmt.Sprintf(":%s", port)
-	log.Printf("Starting registry proxy on %s", addr)
-	log.Printf("Upstream registry: %s", registryURL)
-	log.Printf("Cache expiration: %v", cacheExpiration)
-	
+	utils.Logger.Info("Starting registry proxy",
+		zap.String("addr", addr),
+		zap.String("upstream", registryURL),
+		zap.Duration("cache_expiration", cacheExpiration),
+	)
+
 	if err := http.ListenAndServe(addr, handler); err != nil {
-		log.Fatalf("Server failed: %v", err)
+		utils.Logger.Fatal("Server failed", zap.Error(err))
 	}
+
+	// Ensure logs are flushed before exit
+	defer utils.Sync()
+}
+
+// timeoutMiddleware adds request timeout to prevent long-running requests
+func timeoutMiddleware(next http.Handler) http.Handler {
+	// Get timeout from environment or default to 30 seconds
+	timeoutStr := os.Getenv("REQUEST_TIMEOUT")
+	timeout := 30 * time.Second
+	if timeoutStr != "" {
+		if parsed, err := time.ParseDuration(timeoutStr); err == nil {
+			timeout = parsed
+		}
+	}
+
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		ctx, cancel := context.WithTimeout(r.Context(), timeout)
+		defer cancel()
+
+		r = r.WithContext(ctx)
+		next.ServeHTTP(w, r)
+	})
 }
 
 // corsMiddleware adds CORS headers
+// For public hosted registries, allows all origins by default
 func corsMiddleware(next http.Handler) http.Handler {
+	// Get allowed origin from environment variable
+	// For public hosted registries, "*" is appropriate as the API is designed to be accessed from anywhere
+	// Only restrict if you have a specific private deployment scenario
+	allowedOrigin := os.Getenv("CORS_ALLOWED_ORIGIN")
+	if allowedOrigin == "" {
+		allowedOrigin = "*" // Public hosted registry - allow all origins
+		utils.Logger.Info("CORS_ALLOWED_ORIGIN not set, allowing all origins (public registry mode)",
+			zap.String("origin", allowedOrigin))
+	}
+
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Set CORS headers
-		w.Header().Set("Access-Control-Allow-Origin", "*")
-		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
-		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+		w.Header().Set("Access-Control-Allow-Origin", allowedOrigin)
+		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Requested-With")
 		w.Header().Set("Access-Control-Max-Age", "86400")
+
+		// For public APIs, also set these headers for better compatibility
+		if allowedOrigin == "*" {
+			w.Header().Set("Access-Control-Allow-Credentials", "false")
+		}
 
 		// Handle preflight
 		if r.Method == "OPTIONS" {

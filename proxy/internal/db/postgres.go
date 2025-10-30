@@ -5,10 +5,10 @@ import (
 	"database/sql"
 	"fmt"
 	"log"
+	"math"
 	"os"
+	"strings"
 	"time"
-
-	_ "github.com/lib/pq"
 )
 
 // DB holds the database connection pool
@@ -98,12 +98,13 @@ func (db *DB) UpsertRating(ctx context.Context, serverID, userID string, rating 
 	_, err = tx.ExecContext(ctx, `
 		INSERT INTO proxy_server_stats (server_id, rating, rating_count, updated_at)
 		SELECT
-			$1,
+			server_id,
 			AVG(rating)::numeric(3,2),
 			COUNT(*)::integer,
 			NOW()
 		FROM proxy_user_ratings
 		WHERE server_id = $1
+		GROUP BY server_id
 		ON CONFLICT (server_id)
 		DO UPDATE SET
 			rating = EXCLUDED.rating,
@@ -142,9 +143,10 @@ func (db *DB) TrackInstallation(ctx context.Context, serverID, userID, source, v
 	// Update installation count in server_stats
 	_, err = tx.ExecContext(ctx, `
 		INSERT INTO proxy_server_stats (server_id, installation_count, updated_at)
-		SELECT $1, COUNT(DISTINCT user_id)::integer, NOW()
+		SELECT server_id, COUNT(DISTINCT user_id)::integer, NOW()
 		FROM proxy_user_installations
 		WHERE server_id = $1
+		GROUP BY server_id
 		ON CONFLICT (server_id)
 		DO UPDATE SET
 			installation_count = EXCLUDED.installation_count,
@@ -276,4 +278,182 @@ func (db *DB) GetReviewsPaginated(ctx context.Context, serverID string, limit, o
 	}
 
 	return reviews, totalCount, nil
+}
+
+// NewRegistryDB creates a connection to the registry database
+func NewRegistryDB() (*DB, error) {
+	// Get connection string from environment or use default for docker network
+	dbURL := os.Getenv("REGISTRY_DATABASE_URL")
+	if dbURL == "" {
+		// Default to the PostgreSQL container in the same network
+		dbURL = "postgres://mcpregistry:mcpregistry@postgresql:5432/mcp_registry?sslmode=disable"
+	}
+
+	// Open connection
+	db, err := sql.Open("postgres", dbURL)
+	if err != nil {
+		return nil, fmt.Errorf("failed to open registry database: %w", err)
+	}
+
+	// Configure connection pool
+	db.SetMaxOpenConns(25)
+	db.SetMaxIdleConns(5)
+	db.SetConnMaxLifetime(5 * time.Minute)
+
+	// Verify connection
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	if err := db.PingContext(ctx); err != nil {
+		return nil, fmt.Errorf("failed to ping registry database: %w", err)
+	}
+
+	log.Println("✓ Connected to Registry PostgreSQL database")
+
+	return &DB{db}, nil
+}
+
+// ServerFilter contains all possible filters for servers
+type ServerFilter struct {
+	Search           string   `json:"search,omitempty"`
+	RegistryTypes    []string `json:"registry_types,omitempty"` // npm, pypi, oci, remote, etc
+	Category         string   `json:"category,omitempty"`
+	Tags             []string `json:"tags,omitempty"`
+	HasTransport     []string `json:"has_transport,omitempty"` // sse, http, stdio
+	MinRating        float64  `json:"min_rating,omitempty"`
+	MinInstalls      int      `json:"min_installs,omitempty"`
+}
+
+// QueryServersEnhanced queries servers with filtering, sorting, and enrichment
+// Uses squirrel query builder to prevent SQL injection and improve maintainability
+func (db *DB) QueryServersEnhanced(ctx context.Context, filter ServerFilter, sort string, limit, offset int) ([]map[string]interface{}, int, error) {
+	// Build the complete query using query builders
+	query, args, err := buildMainQuery(filter, sort, limit, offset)
+	if err != nil {
+		return nil, 0, fmt.Errorf("failed to build query: %w", err)
+	}
+
+	// Execute query
+	rows, err := db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, 0, fmt.Errorf("failed to query servers: %w", err)
+	}
+	defer rows.Close()
+
+	servers := []map[string]interface{}{}
+	var totalCount int
+
+	// Process each row
+	for rows.Next() {
+		// Scan row into individual fields
+		serverName, valueJSON, publishedAt, updatedAt, rating, ratingCount, installCount, total, err := scanServerRow(rows)
+		if err != nil {
+			return nil, 0, fmt.Errorf("failed to scan server: %w", err)
+		}
+
+		// Create stats struct
+		stats := ServerStats{
+			Rating:            rating,
+			RatingCount:       ratingCount,
+			InstallationCount: installCount,
+		}
+
+		// Map row to server with enrichment
+		server, err := mapRowToServer(serverName, valueJSON, publishedAt, updatedAt, stats)
+		if err != nil {
+			return nil, 0, err
+		}
+
+		servers = append(servers, server)
+		totalCount = total // Will be the same for all rows
+	}
+
+	if err = rows.Err(); err != nil {
+		return nil, 0, fmt.Errorf("error iterating servers: %w", err)
+	}
+
+	return servers, totalCount, nil
+}
+
+// calculateQualityScore calculates a quality score for a server
+func calculateQualityScore(rating float64, ratingCount, installCount int) float64 {
+	// Weighted formula for quality
+	// Rating contributes 40%, review count 30%, installs 30%
+	ratingScore := rating * 8 // Max 40 (5 * 8)
+
+	// Logarithmic scaling for counts to prevent domination by outliers
+	reviewScore := 0.0
+	if ratingCount > 0 {
+		reviewScore = math.Min(math.Log10(float64(ratingCount)+1)*10, 30) // Max 30
+	}
+
+	installScore := 0.0
+	if installCount > 0 {
+		installScore = math.Min(math.Log10(float64(installCount)+1)*10, 30) // Max 30
+	}
+
+	return math.Round((ratingScore+reviewScore+installScore)*10) / 10 // Round to 1 decimal
+}
+
+// generateBadges generates achievement badges for a server
+func generateBadges(server map[string]interface{}, rating float64, ratingCount, installCount int) []map[string]string {
+	badges := []map[string]string{}
+
+	// Top Rated badge
+	if rating >= 4.5 && ratingCount >= 10 {
+		badges = append(badges, map[string]string{
+			"type":  "top_rated",
+			"label": "Top Rated",
+			"icon":  "⭐",
+		})
+	}
+
+	// Popular badge
+	if installCount >= 100 {
+		badges = append(badges, map[string]string{
+			"type":  "popular",
+			"label": "Popular",
+			"icon":  "🔥",
+		})
+	}
+
+	// Well Reviewed badge
+	if ratingCount >= 50 {
+		badges = append(badges, map[string]string{
+			"type":  "well_reviewed",
+			"label": "Well Reviewed",
+			"icon":  "💬",
+		})
+	}
+
+	// Official badge (if from modelcontextprotocol org)
+	if packages, ok := server["packages"].([]interface{}); ok && len(packages) > 0 {
+		for _, pkg := range packages {
+			if pkgMap, ok := pkg.(map[string]interface{}); ok {
+				if identifier, ok := pkgMap["identifier"].(string); ok {
+					if strings.HasPrefix(identifier, "@modelcontextprotocol/") {
+						badges = append(badges, map[string]string{
+							"type":  "official",
+							"label": "Official",
+							"icon":  "✓",
+						})
+						break
+					}
+				}
+			}
+		}
+	}
+
+	// New badge (created in last 7 days)
+	if publishedAt, ok := server["published_at"].(time.Time); ok {
+		if time.Since(publishedAt) < 7*24*time.Hour {
+			badges = append(badges, map[string]string{
+				"type":  "new",
+				"label": "New",
+				"icon":  "🆕",
+			})
+		}
+	}
+
+	return badges
 }

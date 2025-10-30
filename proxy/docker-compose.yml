@@ -12,6 +12,11 @@ services:
     environment:
       - PROXY_PORT=8090
       - REGISTRY_URL=http://registry:8080
+      - DATABASE_URL=postgres://mcpregistry:pluggedin2024secure@postgresql:5432/proxy_db?sslmode=disable
+      - REGISTRY_DATABASE_URL=postgres://mcpregistry:pluggedin2024secure@postgresql:5432/mcp_registry?sslmode=disable
+      - API_KEY=${API_KEY:-dev-api-key-change-in-production}
+    ports:
+      - "8090:8090"
     networks:
       - pluggedin-main
       - traefik
@@ -20,7 +25,7 @@ services:
       - "traefik.docker.network=traefik"
       
       # HTTPS router
-      - "traefik.http.routers.proxy-secure.rule=Host(`api.plugged.in`)"
+      - "traefik.http.routers.proxy-secure.rule=Host(`registry.plugged.in`)"
       - "traefik.http.routers.proxy-secure.entrypoints=websecure"
       - "traefik.http.routers.proxy-secure.tls=true"
       - "traefik.http.routers.proxy-secure.tls.certresolver=letsencrypt"

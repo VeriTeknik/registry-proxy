@@ -18,7 +18,7 @@ A secure, internal-only admin interface for managing MCP servers in the registry
 
 This admin service is **completely separate** from the main registry:
 - Runs as independent Docker container
-- Direct MongoDB access (no registry API dependency)
+- Direct PostgreSQL access (no registry API dependency)
 - Won't be affected by upstream registry updates
 - Separate codebase outside the registry submodule
 
@@ -120,7 +120,7 @@ All operations are logged with:
 # Install dependencies
 go mod download
 
-# Run locally (requires MongoDB)
+# Run locally (requires PostgreSQL)
 go run cmd/admin/main.go
 
 # Access at http://localhost:8092
@@ -133,7 +133,7 @@ admin/
 ├── cmd/admin/          # Main application entry
 ├── internal/
 │   ├── auth/          # JWT authentication
-│   ├── db/            # MongoDB operations
+│   ├── db/            # PostgreSQL operations
 │   ├── handlers/      # HTTP handlers
 │   ├── middleware/    # Auth & CORS middleware
 │   └── models/        # Data models
@@ -143,9 +143,9 @@ admin/
 ## Maintenance
 
 ### Backup
-Regular MongoDB backups recommended:
+Regular PostgreSQL backups recommended:
 ```bash
-mongodump --db registry --out backup/
+pg_dump -h postgresql -U mcpregistry mcp_registry > backup.sql
 ```
 
 ### Update Admin Password
@@ -158,8 +158,8 @@ mongodump --db registry --out backup/
 # Application logs
 docker logs registry-admin -f
 
-# Audit logs via UI or MongoDB
-mongo registry --eval "db.audit_logs.find().sort({timestamp: -1}).limit(10)"
+# Audit logs via UI or PostgreSQL
+psql -h postgresql -U mcpregistry -d mcp_registry -c "SELECT * FROM audit_logs ORDER BY timestamp DESC LIMIT 10"
 ```
 
 ## Troubleshooting
@@ -169,10 +169,10 @@ mongo registry --eval "db.audit_logs.find().sort({timestamp: -1}).limit(10)"
 - Verify JWT_SECRET is set
 - Check container logs
 
-### MongoDB Connection Failed
-- Ensure MongoDB is running
+### PostgreSQL Connection Failed
+- Ensure PostgreSQL is running
 - Check network connectivity
-- Verify MONGODB_URL in `.env`
+- Verify POSTGRES_URL in `.env`
 
 ### Traefik Routing Issues
 - Check DNS for admin.registry.plugged.in

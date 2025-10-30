@@ -67,16 +67,3 @@ services:
     networks:
       - default
       - traefik
-
-  # MongoDB (temporarily for admin only)
-  mongodb:
-    image: mongo:latest
-    container_name: mongodb
-    restart: unless-stopped
-    volumes:
-      - ./mongodb/data:/data/db
-    ports:
-      - "27017:27017"
-    networks:
-      - default
-      - traefik
