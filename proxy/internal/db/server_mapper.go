@@ -33,11 +33,11 @@ func mapRowToServer(
 	value["updated_at"] = updatedAt
 
 	// Enrich with stats
-	return enrichServerWithStats(value, stats), nil
+	return EnrichServerWithStats(value, stats), nil
 }
 
-// enrichServerWithStats adds statistics and derived fields to a server map
-func enrichServerWithStats(server map[string]interface{}, stats ServerStats) map[string]interface{} {
+// EnrichServerWithStats adds statistics and derived fields to a server map
+func EnrichServerWithStats(server map[string]interface{}, stats ServerStats) map[string]interface{} {
 	// Add stats fields at top level (expected by frontend)
 	server["rating"] = stats.Rating
 	server["rating_count"] = stats.RatingCount

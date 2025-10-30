@@ -75,7 +75,9 @@ func buildCategoryFilter(cteWhere sq.And, filter ServerFilter) sq.And {
 // buildTagsFilter adds tags filtering to the query
 func buildTagsFilter(cteWhere sq.And, filter ServerFilter) sq.And {
 	if len(filter.Tags) > 0 {
-		cteWhere = append(cteWhere, sq.Expr("s.value->'tags' ?| ?", pq.Array(filter.Tags)))
+		// Use ?| operator for array overlap (PostgreSQL)
+		// Note: ?? escapes to single ? in Squirrel, so ??| becomes ?| operator
+		cteWhere = append(cteWhere, sq.Expr("s.value->'tags' ??| ?", pq.Array(filter.Tags)))
 	}
 	return cteWhere
 }

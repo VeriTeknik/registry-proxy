@@ -1,9 +1,11 @@
 package db
 
 import (
+	"database/sql/driver"
 	"strings"
 	"testing"
 
+	sq "github.com/Masterminds/squirrel"
 	"github.com/lib/pq"
 )
 
@@ -106,8 +108,8 @@ func TestBuildSearchFilter(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			initialLen := 1 // base condition
-			cteWhere := make([]interface{}, initialLen)
+			cteWhere := sq.And{}
+			initialLen := len(cteWhere)
 			result := buildSearchFilter(cteWhere, tt.filter)
 			if len(result)-initialLen != tt.want {
 				t.Errorf("buildSearchFilter() added %d conditions, want %d", len(result)-initialLen, tt.want)
@@ -142,8 +144,8 @@ func TestBuildCategoryFilter(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			filter := ServerFilter{Category: tt.category}
-			initialLen := 1
-			cteWhere := make([]interface{}, initialLen)
+			cteWhere := sq.And{}
+			initialLen := len(cteWhere)
 			result := buildCategoryFilter(cteWhere, filter)
 			if len(result)-initialLen != tt.want {
 				t.Errorf("buildCategoryFilter() added %d conditions, want %d", len(result)-initialLen, tt.want)
@@ -178,8 +180,8 @@ func TestBuildRatingFilter(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			filter := ServerFilter{MinRating: tt.minRating}
-			initialLen := 1
-			cteWhere := make([]interface{}, initialLen)
+			cteWhere := sq.And{}
+			initialLen := len(cteWhere)
 			result := buildRatingFilter(cteWhere, filter)
 			if len(result)-initialLen != tt.want {
 				t.Errorf("buildRatingFilter() added %d conditions, want %d", len(result)-initialLen, tt.want)
@@ -471,16 +473,26 @@ func TestTagsArrayHandling(t *testing.T) {
 		t.Fatalf("buildCTEQuery() failed: %v", err)
 	}
 
-	// Verify tags are passed as pq.Array
+	// Verify tags are passed as pq.Array (which wraps the slice)
 	found := false
 	for _, arg := range args {
-		if _, ok := arg.(pq.StringArray); ok {
+		// pq.Array returns interface{} that could be various types
+		// Check if it's a StringArray or the generic Array wrapper
+		switch v := arg.(type) {
+		case pq.StringArray:
 			found = true
+		case interface{ Value() (driver.Value, error) }:
+			// pq.Array returns a type that implements driver.Valuer
+			if _, err := v.Value(); err == nil {
+				found = true
+			}
+		}
+		if found {
 			break
 		}
 	}
 	if !found {
-		t.Error("Tags not passed as pq.Array")
+		t.Errorf("Tags not passed as pq.Array, got types: %T", args)
 	}
 
 	// Verify SQL uses ?| operator

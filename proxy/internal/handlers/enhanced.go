@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"encoding/json"
 	"net/http"
 	"strconv"
 	"time"
@@ -183,7 +184,7 @@ func (h *EnhancedHandler) HandleStats(w http.ResponseWriter, r *http.Request) {
 	)
 
 	if err != nil {
-		log.Printf("Error querying stats: %v", err)
+		h.logger.Error("Error querying stats", zap.Error(err))
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
 		return
 	}
@@ -200,8 +201,8 @@ func (h *EnhancedHandler) HandleStats(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
 	// Write response
-	if err := json.NewEncoder(w).Encode(stats); err != nil {
-		log.Printf("Error encoding response: %v", err)
+	if err := utils.WriteJSON(w, http.StatusOK, stats); err != nil {
+		h.logger.Error("Error encoding stats response", zap.Error(err))
 	}
 }
 
@@ -254,7 +255,7 @@ func (h *EnhancedHandler) HandleTrending(w http.ResponseWriter, r *http.Request)
 
 	rows, err := h.registryDB.QueryContext(r.Context(), query)
 	if err != nil {
-		log.Printf("Error querying trending: %v", err)
+		h.logger.Error("Error querying trending servers", zap.Error(err))
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
 		return
 	}
@@ -276,14 +277,14 @@ func (h *EnhancedHandler) HandleTrending(w http.ResponseWriter, r *http.Request)
 			&trendingScore,
 		)
 		if err != nil {
-			log.Printf("Error scanning trending server: %v", err)
+			h.logger.Warn("Error scanning trending server", zap.Error(err))
 			continue
 		}
 
 		// Parse the JSON value
 		var value map[string]interface{}
 		if err := json.Unmarshal(valueJSON, &value); err != nil {
-			log.Printf("Error parsing server JSON: %v", err)
+			h.logger.Warn("Error parsing server JSON", zap.String("server", serverName), zap.Error(err))
 			continue
 		}
 
@@ -300,9 +301,6 @@ func (h *EnhancedHandler) HandleTrending(w http.ResponseWriter, r *http.Request)
 		trending = append(trending, value)
 	}
 
-	// Set headers
-	w.Header().Set("Content-Type", "application/json")
-
 	// Write response
 	response := map[string]interface{}{
 		"trending":  trending,
@@ -310,8 +308,8 @@ func (h *EnhancedHandler) HandleTrending(w http.ResponseWriter, r *http.Request)
 		"timestamp": time.Now().UTC().Format(time.RFC3339),
 	}
 
-	if err := json.NewEncoder(w).Encode(response); err != nil {
-		log.Printf("Error encoding response: %v", err)
+	if err := utils.WriteJSON(w, http.StatusOK, response); err != nil {
+		h.logger.Error("Error encoding trending response", zap.Error(err))
 	}
 }
 
@@ -391,15 +389,13 @@ func (h *EnhancedHandler) HandleServerDetail(w http.ResponseWriter, r *http.Requ
 	// Add enhanced fields
 	value["id"] = serverName
 	value["name"] = serverName
-	value["stats"] = map[string]interface{}{
-		"rating":        rating,
-		"rating_count":  ratingCount,
-		"install_count": installCount,
-	}
+
+	// Use the helper function to add stats
+	value = db.EnrichServerWithStats(value, stats)
 
 	// Write JSON response
 	if err := utils.WriteJSON(w, http.StatusOK, value); err != nil {
-		log.Printf("Error encoding response: %v", err)
+		h.logger.Error("Error encoding server detail response", zap.Error(err))
 	}
 }
 

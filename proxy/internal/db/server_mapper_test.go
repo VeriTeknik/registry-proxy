@@ -101,7 +101,7 @@ func TestEnrichServerWithStats(t *testing.T) {
 		InstallationCount: 200,
 	}
 
-	result := enrichServerWithStats(server, stats)
+	result := EnrichServerWithStats(server, stats)
 
 	// Check top-level stats
 	if result["rating"] != 4.2 {
@@ -163,7 +163,7 @@ func TestEnrichServerWithStats_ZeroStats(t *testing.T) {
 		InstallationCount: 0,
 	}
 
-	result := enrichServerWithStats(server, stats)
+	result := EnrichServerWithStats(server, stats)
 
 	// Should still create stats fields even with zero values
 	if result["rating"] != float64(0) {
@@ -240,6 +240,6 @@ func BenchmarkEnrichServerWithStats(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		_ = enrichServerWithStats(server, stats)
+		_ = EnrichServerWithStats(server, stats)
 	}
 }

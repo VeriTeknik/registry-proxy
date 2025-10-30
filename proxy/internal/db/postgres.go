@@ -3,15 +3,12 @@ package db
 import (
 	"context"
 	"database/sql"
-	"encoding/json"
 	"fmt"
 	"log"
 	"math"
 	"os"
 	"strings"
 	"time"
-
-	"github.com/lib/pq"
 )
 
 // DB holds the database connection pool
