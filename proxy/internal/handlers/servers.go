@@ -134,7 +134,7 @@ func (h *ServersHandler) getEnrichedServers(ctx context.Context) ([]models.Enric
 
 	// Fetch directly from registry database (includes all fields)
 	filter := db.ServerFilter{}
-	serverMaps, _, err := h.registryDB.QueryServersEnhanced(ctx, filter, "published_at", 10000, 0)
+	serverMaps, _, err := h.registryDB.QueryServersEnhanced(ctx, filter, "created", 10000, 0)
 	if err != nil {
 		return nil, fmt.Errorf("fetching servers from database: %w", err)
 	}
@@ -306,6 +306,7 @@ func (h *ServersHandler) convertRemote(remoteMap map[string]interface{}) models.
 			if headerMap, ok := header.(map[string]interface{}); ok {
 				remote.Headers = append(remote.Headers, models.RemoteHeader{
 					Name:        getStringFromMap(headerMap, "name"),
+					Value:       getStringFromMap(headerMap, "value"),
 					Description: getStringFromMap(headerMap, "description"),
 					Default:     getStringFromMap(headerMap, "default"),
 					IsRequired:  getBoolFromMap(headerMap, "isRequired"),

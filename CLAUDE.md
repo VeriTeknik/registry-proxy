@@ -37,6 +37,152 @@ User Request → registry.plugged.in → Proxy Service → Core Registry → Pos
 5. **Caching**: 5-minute cache for improved performance
 6. **100% Backward Compatible**: All original endpoints work unchanged
 
+## API Endpoints
+
+### `/v0/servers` (Standard Endpoint)
+**Purpose**: Registry-compatible endpoint with caching for performance
+
+**Features**:
+- ✅ 5-minute in-memory cache
+- ✅ Includes remote headers (e.g., OAuth tokens for Smithery servers)
+- ✅ Basic filtering: `?registry_name=npm`, `?search=term`, `?sort=created`
+- ✅ Returns structured `EnrichedServer` objects
+- ✅ Includes ratings/stats from proxy database
+
+**Use Cases**:
+- Standard registry queries
+- When you want cached responses for better performance
+- Compatible with MCP clients expecting standard registry format
+
+**Response Format**:
+```json
+{
+  "servers": [...],
+  "metadata": {
+    "count": 10,
+    "total": 1609,
+    "cached_at": "2025-11-08T04:08:59Z"
+  }
+}
+```
+
+### `/v0/enhanced/servers` (Advanced Endpoint)
+**Purpose**: Direct database queries with advanced filtering (added Oct 28, 2025)
+
+**Features**:
+- ✅ NO caching - always fresh from database
+- ✅ Includes remote headers (e.g., OAuth tokens for Smithery servers)
+- ✅ Advanced filtering: `?category=`, `?tags=`, `?min_rating=`, `?registry_types=`
+- ✅ Returns raw JSONB from database
+- ✅ Includes ratings/stats from proxy database
+
+**Use Cases**:
+- When you need guaranteed fresh data
+- Advanced filtering requirements
+- Debugging cache issues
+- Aggregate statistics
+
+**Response Format**:
+```json
+{
+  "servers": [...],
+  "total_count": 1609,
+  "filters": {...},
+  "sort": "created"
+}
+```
+
+### Ratings & Stats Endpoints
+All ratings endpoints work through `/v0/servers/*` paths:
+- `POST /v0/servers/{id}/rate` - Submit rating (requires auth)
+- `POST /v0/servers/{id}/install` - Track installation (requires auth)
+- `GET /v0/servers/{id}/stats` - Get server statistics
+- `GET /v0/servers/{id}/reviews` - Get user reviews
+- `GET /v0/servers/{id}/feedback` - Get paginated feedback
+
+### When to Use Which Endpoint
+
+| Need | Use |
+|------|-----|
+| Standard registry queries | `/v0/servers` |
+| Best performance (caching) | `/v0/servers` |
+| Advanced filtering (tags, ratings) | `/v0/enhanced/servers` |
+| Fresh data (no cache) | `/v0/enhanced/servers` |
+| Submit ratings/installs | `/v0/servers/{id}/rate` or `/install` |
+| Aggregate statistics | `/v0/enhanced/stats/*` |
+
+## Remote Headers Support
+
+**Background**: Many MCP servers (especially Smithery servers) require authentication headers. As of November 8, 2025, the proxy correctly extracts and returns these headers.
+
+**What's Included**:
+- Header name (e.g., "Authorization")
+- Header value template (e.g., "Bearer {smithery_api_key}")
+- Description of what the header is for
+- Flags: `isRequired`, `isSecret`
+
+**Example** (from `ai.smithery/zwldarren-akshare-one-mcp`):
+```json
+"remotes": [{
+  "transport_type": "streamable-http",
+  "url": "https://server.smithery.ai/@zwldarren/akshare-one-mcp/mcp",
+  "headers": [{
+    "name": "Authorization",
+    "value": "Bearer {smithery_api_key}",
+    "description": "Bearer token for Smithery authentication",
+    "isRequired": true,
+    "isSecret": true
+  }]
+}]
+```
+
+**Database Status**:
+- ✅ 1,609 servers synced from official registry (as of Nov 8, 2025)
+- ✅ 245 servers have remote headers
+- ✅ Schema validation accepts 2025-10-17, 2025-09-29, 2025-09-16
+
+## Troubleshooting
+
+### Headers Not Showing in `/v0/servers`
+If headers are missing from `/v0/servers` but present in `/v0/enhanced/servers`:
+
+1. **Clear the cache**:
+   ```bash
+   curl -X POST https://registry.plugged.in/v0/cache/refresh
+   ```
+
+2. **Verify headers in database**:
+   ```bash
+   docker exec postgresql psql -U mcpregistry -d mcp_registry -c \
+     "SELECT value->'remotes'->0->'headers' FROM servers WHERE server_name = 'ai.smithery/zwldarren-akshare-one-mcp' AND is_latest = true;"
+   ```
+
+3. **Restart proxy** (if cache refresh doesn't work):
+   ```bash
+   docker restart registry-proxy
+   ```
+
+### Registry Resync After Upstream Updates
+When official MCP Registry has updates:
+
+1. **Purge database and resync**:
+   ```bash
+   # Stop services
+   cd /home/pluggedin/registry/main
+   ./stop-all.sh
+
+   # Drop and recreate database
+   docker start postgresql
+   docker exec postgresql psql -U mcpregistry -d postgres -c "DROP DATABASE IF EXISTS mcp_registry;"
+   docker exec postgresql psql -U mcpregistry -d postgres -c "CREATE DATABASE mcp_registry OWNER mcpregistry;"
+
+   # Enable seed import in registry/.env
+   # MCP_REGISTRY_SEED_FROM=https://registry.modelcontextprotocol.io/v0/servers
+
+   # Restart all services
+   ./start-all.sh
+   ```
+
 ## Common Commands
 
 ### Start All Services
@@ -64,8 +210,8 @@ git push
 ### Rebuild Proxy
 ```bash
 cd /home/pluggedin/registry/proxy
-docker build -t registry-proxy:v2 .
-docker compose -f docker-compose-replace.yml up -d
+docker build -t registry-proxy:v3 .
+docker restart registry-proxy
 ```
 
 ### View Logs
