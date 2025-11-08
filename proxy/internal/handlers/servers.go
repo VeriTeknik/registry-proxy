@@ -197,10 +197,7 @@ func (h *ServersHandler) convertMapToEnrichedServer(serverMap map[string]interfa
 	if remotes, ok := serverMap["remotes"].([]interface{}); ok {
 		for _, remote := range remotes {
 			if remoteMap, ok := remote.(map[string]interface{}); ok {
-				enriched.Remotes = append(enriched.Remotes, models.Remote{
-					TransportType: getStringFromMap(remoteMap, "type"),
-					URL:           getStringFromMap(remoteMap, "url"),
-				})
+				enriched.Remotes = append(enriched.Remotes, h.convertRemote(remoteMap))
 			}
 		}
 	}
@@ -294,6 +291,31 @@ func (h *ServersHandler) convertArgument(argMap map[string]interface{}) models.A
 	}
 
 	return arg
+}
+
+// convertRemote converts a remote map to models.Remote
+func (h *ServersHandler) convertRemote(remoteMap map[string]interface{}) models.Remote {
+	remote := models.Remote{
+		TransportType: getStringFromMap(remoteMap, "type"),
+		URL:           getStringFromMap(remoteMap, "url"),
+	}
+
+	// Extract headers array (CRITICAL for OAuth servers)
+	if headers, ok := remoteMap["headers"].([]interface{}); ok {
+		for _, header := range headers {
+			if headerMap, ok := header.(map[string]interface{}); ok {
+				remote.Headers = append(remote.Headers, models.RemoteHeader{
+					Name:        getStringFromMap(headerMap, "name"),
+					Description: getStringFromMap(headerMap, "description"),
+					Default:     getStringFromMap(headerMap, "default"),
+					IsRequired:  getBoolFromMap(headerMap, "isRequired"),
+					IsSecret:    getBoolFromMap(headerMap, "isSecret"),
+				})
+			}
+		}
+	}
+
+	return remote
 }
 
 // Helper functions to safely extract values from maps
