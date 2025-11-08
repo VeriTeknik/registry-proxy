@@ -66,6 +66,7 @@ type EnvironmentVariable struct {
 // RemoteHeader represents a header for remote servers
 type RemoteHeader struct {
 	Name        string `json:"name"`
+	Value       string `json:"value,omitempty"`
 	Description string `json:"description,omitempty"`
 	Default     string `json:"default,omitempty"`
 	IsRequired  bool   `json:"is_required,omitempty"`
