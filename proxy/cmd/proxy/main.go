@@ -9,9 +9,11 @@ import (
 	"strings"
 	"time"
 
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/veriteknik/registry-proxy/internal/cache"
 	"github.com/veriteknik/registry-proxy/internal/db"
 	"github.com/veriteknik/registry-proxy/internal/handlers"
+	_ "github.com/veriteknik/registry-proxy/internal/metrics" // Import metrics for auto-registration
 	"github.com/veriteknik/registry-proxy/internal/middleware"
 	"github.com/veriteknik/registry-proxy/internal/utils"
 	"go.uber.org/zap"
@@ -66,6 +68,9 @@ func main() {
 		w.WriteHeader(http.StatusOK)
 		fmt.Fprintf(w, `{"status":"ok","service":"registry-proxy"}`)
 	})
+
+	// Prometheus metrics endpoint
+	mux.Handle("/metrics", promhttp.Handler())
 
 	// Registry-compatible health check
 	mux.HandleFunc("/v0/health", func(w http.ResponseWriter, r *http.Request) {

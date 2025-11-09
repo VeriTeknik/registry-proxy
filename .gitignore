@@ -3,6 +3,7 @@
 .env.*
 !.env.example
 registry/.env
+monitoring/.env
 
 # Docker volumes
 mongodb/
@@ -10,6 +11,12 @@ main/mongodb/
 .db/
 mongo_data/
 data/
+
+# Monitoring data volumes
+monitoring/prometheus_data/
+monitoring/grafana_data/
+prometheus_data/
+grafana_data/
 
 # Certificates and secrets
 *.pem
@@ -68,6 +75,17 @@ diagnostic.data/
 
 # Node modules (if any frontend added later)
 node_modules/
+
+# Separate application (not part of registry)
+pluggedin-app/
+
+# Monitoring stack environment and data (submodule at monitoring/)
+monitoring/.env
+monitoring/prometheus_data/
+monitoring/grafana_data/
+monitoring/loki_data/
+monitoring/traefik_certs/
+monitoring/postgres_data/
 
 # Backup files
 *.old
