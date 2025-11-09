@@ -136,7 +136,7 @@ func buildRegistryTypesFilter(filter ServerFilter) sq.And {
 		conditions = append(conditions, sq.Expr(
 			`EXISTS (
 				SELECT 1 FROM jsonb_array_elements(value->'remotes') r
-				WHERE r->>'transport_type' IN ('sse', 'http', 'streamable-http')
+				WHERE r->>'type' IN ('sse', 'http', 'streamable-http')
 			)`,
 		))
 	}
