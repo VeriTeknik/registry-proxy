@@ -6,7 +6,7 @@ networks:
 
 services:
   registry-proxy:
-    image: registry-proxy:v5
+    image: registry-proxy:v6
     container_name: registry-proxy
     restart: unless-stopped
     env_file:
