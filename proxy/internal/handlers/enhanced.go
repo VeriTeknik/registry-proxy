@@ -4,9 +4,11 @@ import (
 	"encoding/json"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/veriteknik/registry-proxy/internal/db"
+	"github.com/veriteknik/registry-proxy/internal/metrics"
 	"github.com/veriteknik/registry-proxy/internal/utils"
 	"go.uber.org/zap"
 )
@@ -86,7 +88,43 @@ func (h *EnhancedHandler) HandleEnhancedServers(w http.ResponseWriter, r *http.R
 	// Query enhanced servers
 	servers, totalCount, err := h.registryDB.QueryServersEnhanced(r.Context(), filter, sort, limit, offset)
 	if err != nil {
-		h.logger.Error("Failed to query enhanced servers", zap.Error(err))
+		// Record error metrics
+		metrics.RecordDatabaseQueryError("enhanced_servers")
+
+		// Check for specific error types
+		errStr := err.Error()
+		if strings.Contains(errStr, "pq: op ANY/ALL (array) requires array on right side") {
+			metrics.RecordDatabaseError("array_parameter")
+		}
+
+		// Check which filter caused the error
+		if len(filter.RegistryTypes) > 0 && strings.Contains(errStr, "registry") {
+			metrics.RecordFilterError("/v0/enhanced/servers", "registry_types")
+		}
+		if len(filter.HasTransport) > 0 && strings.Contains(errStr, "transport") {
+			metrics.RecordFilterError("/v0/enhanced/servers", "transports")
+		}
+		if len(filter.Tags) > 0 && strings.Contains(errStr, "tags") {
+			metrics.RecordFilterError("/v0/enhanced/servers", "tags")
+		}
+
+		h.logger.Error("Failed to query enhanced servers",
+			zap.Error(err),
+			zap.String("endpoint", "/v0/enhanced/servers"),
+			zap.String("method", r.Method),
+			zap.String("path", r.URL.Path),
+			zap.String("query", r.URL.RawQuery),
+			zap.String("search", filter.Search),
+			zap.String("category", filter.Category),
+			zap.Strings("registry_types", filter.RegistryTypes),
+			zap.Strings("tags", filter.Tags),
+			zap.Strings("transports", filter.HasTransport),
+			zap.Float64("min_rating", filter.MinRating),
+			zap.Int("min_installs", filter.MinInstalls),
+			zap.String("sort", sort),
+			zap.Int("limit", limit),
+			zap.Int("offset", offset),
+		)
 		utils.WriteJSONError(w, "Internal server error", http.StatusInternalServerError)
 		return
 	}

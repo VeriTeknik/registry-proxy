@@ -3,6 +3,7 @@ package utils
 import (
 	"os"
 
+	"github.com/veriteknik/registry-proxy/internal/metrics"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 )
@@ -47,6 +48,13 @@ func NewLogger() *zap.Logger {
 	logger, err := config.Build(
 		zap.AddCaller(),
 		zap.AddStacktrace(zapcore.ErrorLevel),
+		zap.Hooks(func(entry zapcore.Entry) error {
+			// Increment error log counter for error-level logs
+			if entry.Level == zapcore.ErrorLevel {
+				metrics.RecordErrorLog("error")
+			}
+			return nil
+		}),
 	)
 	if err != nil {
 		// Fallback to no-op logger if creation fails

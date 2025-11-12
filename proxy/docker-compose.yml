@@ -15,30 +15,39 @@ services:
       - DATABASE_URL=postgres://mcpregistry:pluggedin2024secure@postgresql:5432/proxy_db?sslmode=disable
       - REGISTRY_DATABASE_URL=postgres://mcpregistry:pluggedin2024secure@postgresql:5432/mcp_registry?sslmode=disable
       - API_KEY=${API_KEY:-dev-api-key-change-in-production}
+      - ENVIRONMENT=production
+      - LOG_LEVEL=info
+      - METRICS_ALLOWED_IPS=${METRICS_ALLOWED_IPS:-127.0.0.1,::1}
     ports:
       - "8090:8090"
     networks:
       - pluggedin-main
       - traefik
     labels:
+      # Traefik configuration
       - "traefik.enable=true"
       - "traefik.docker.network=traefik"
-      
-      # HTTPS router
-      - "traefik.http.routers.proxy-secure.rule=Host(`registry.plugged.in`)"
+
+      # HTTPS router (exclude /metrics from public access)
+      - "traefik.http.routers.proxy-secure.rule=Host(`registry.plugged.in`) && !PathPrefix(`/metrics`)"
       - "traefik.http.routers.proxy-secure.entrypoints=websecure"
       - "traefik.http.routers.proxy-secure.tls=true"
       - "traefik.http.routers.proxy-secure.tls.certresolver=letsencrypt"
       - "traefik.http.routers.proxy-secure.service=proxy"
-      
+
       # Service definition
       - "traefik.http.services.proxy.loadbalancer.server.port=8090"
-      
+
       # Middlewares
       - "traefik.http.routers.proxy-secure.middlewares=proxy-cors"
-      
+
       # CORS headers (same as registry but for all origins during development)
       - "traefik.http.middlewares.proxy-cors.headers.accessControlAllowOriginList=https://plugged.in,https://staging.plugged.in,http://localhost:12005"
       - "traefik.http.middlewares.proxy-cors.headers.accessControlAllowMethods=GET,POST,OPTIONS"
       - "traefik.http.middlewares.proxy-cors.headers.accessControlAllowHeaders=*"
       - "traefik.http.middlewares.proxy-cors.headers.accessControlMaxAge=100"
+
+      # Logging labels for Promtail/Loki
+      - "com.docker.compose.project=pluggedin-registry"
+      - "com.docker.compose.service=registry-proxy"
+      - "logging.promtail.enabled=true"

@@ -122,6 +122,39 @@ var (
 			Help: "Total number of installations recorded across all servers",
 		},
 	)
+
+	// Error Metrics
+	DatabaseQueryErrorsTotal = promauto.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "registry_proxy_database_query_errors_total",
+			Help: "Total number of database query errors",
+		},
+		[]string{"operation"},
+	)
+
+	DatabaseErrorsTotal = promauto.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "registry_proxy_database_errors_total",
+			Help: "Total number of database errors by type",
+		},
+		[]string{"error_type"},
+	)
+
+	FilterErrorsTotal = promauto.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "registry_proxy_filter_errors_total",
+			Help: "Total number of filter parameter errors",
+		},
+		[]string{"endpoint", "filter_type"},
+	)
+
+	ErrorLogsTotal = promauto.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "registry_proxy_error_logs_total",
+			Help: "Total number of error-level logs",
+		},
+		[]string{"level"},
+	)
 )
 
 // RecordHTTPRequest records an HTTP request with duration
@@ -150,4 +183,24 @@ func RecordUpstreamRequest(endpoint, status string, duration time.Duration) {
 func RecordDatabaseQuery(operation, status string, duration time.Duration) {
 	DatabaseQueriesTotal.WithLabelValues(operation, status).Inc()
 	DatabaseQueryDuration.WithLabelValues(operation).Observe(duration.Seconds())
+}
+
+// RecordDatabaseQueryError records a database query error
+func RecordDatabaseQueryError(operation string) {
+	DatabaseQueryErrorsTotal.WithLabelValues(operation).Inc()
+}
+
+// RecordDatabaseError records a database error by type
+func RecordDatabaseError(errorType string) {
+	DatabaseErrorsTotal.WithLabelValues(errorType).Inc()
+}
+
+// RecordFilterError records a filter parameter error
+func RecordFilterError(endpoint, filterType string) {
+	FilterErrorsTotal.WithLabelValues(endpoint, filterType).Inc()
+}
+
+// RecordErrorLog records an error-level log
+func RecordErrorLog(level string) {
+	ErrorLogsTotal.WithLabelValues(level).Inc()
 }

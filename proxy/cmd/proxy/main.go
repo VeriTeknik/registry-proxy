@@ -34,6 +34,11 @@ func main() {
 	cacheExpiration := 5 * time.Minute
 	cacheCleanup := 10 * time.Minute
 
+	// Initialize metrics IP filter
+	if err := middleware.InitMetricsIPFilter(); err != nil {
+		log.Fatalf("Failed to initialize metrics IP filter: %v", err)
+	}
+
 	// Initialize cache
 	proxyCache := cache.NewCache(cacheExpiration, cacheCleanup)
 
@@ -69,8 +74,8 @@ func main() {
 		fmt.Fprintf(w, `{"status":"ok","service":"registry-proxy"}`)
 	})
 
-	// Prometheus metrics endpoint
-	mux.Handle("/metrics", promhttp.Handler())
+	// Prometheus metrics endpoint (IP-filtered for security)
+	mux.Handle("/metrics", middleware.MetricsIPFilter(promhttp.Handler()))
 
 	// Registry-compatible health check
 	mux.HandleFunc("/v0/health", func(w http.ResponseWriter, r *http.Request) {

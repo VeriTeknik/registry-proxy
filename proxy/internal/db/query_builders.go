@@ -2,10 +2,14 @@ package db
 
 import (
 	"fmt"
+	"regexp"
+	"strconv"
 	"strings"
 
 	sq "github.com/Masterminds/squirrel"
 	"github.com/lib/pq"
+	"github.com/veriteknik/registry-proxy/internal/utils"
+	"go.uber.org/zap"
 )
 
 var (
@@ -118,31 +122,47 @@ func buildRegistryTypesFilter(filter ServerFilter) sq.And {
 		}
 	}
 
-	conditions := sq.Or{}
-
-	// Add condition for non-remote registry types
-	if len(nonRemoteTypes) > 0 {
-		conditions = append(conditions, sq.Expr(
-			`EXISTS (
+	// Build conditions based on what we have
+	if len(nonRemoteTypes) > 0 && hasRemote {
+		// Both non-remote and remote - construct OR manually as single expression
+		// Build placeholders for IN clause
+		placeholders := make([]string, len(nonRemoteTypes))
+		args := make([]interface{}, len(nonRemoteTypes))
+		for i, rt := range nonRemoteTypes {
+			placeholders[i] = "?"
+			args[i] = rt
+		}
+		sql := fmt.Sprintf(`(
+			EXISTS (
 				SELECT 1 FROM jsonb_array_elements(value->'packages') p
-				WHERE p->>'registryType' = ANY(?)
-			)`,
-			pq.Array(nonRemoteTypes),
-		))
-	}
-
-	// Add condition for remote transport types
-	if hasRemote {
-		conditions = append(conditions, sq.Expr(
+				WHERE p->>'registryType' IN (%s)
+			) OR EXISTS (
+				SELECT 1 FROM jsonb_array_elements(value->'remotes') r
+				WHERE r->>'type' IN ('sse', 'http', 'streamable-http')
+			)
+		)`, strings.Join(placeholders, ","))
+		mainWhere = append(mainWhere, sq.Expr(sql, args...))
+	} else if len(nonRemoteTypes) > 0 {
+		// Only non-remote types - use IN instead of ANY
+		placeholders := make([]string, len(nonRemoteTypes))
+		args := make([]interface{}, len(nonRemoteTypes))
+		for i, rt := range nonRemoteTypes {
+			placeholders[i] = "?"
+			args[i] = rt
+		}
+		sql := fmt.Sprintf(`EXISTS (
+			SELECT 1 FROM jsonb_array_elements(value->'packages') p
+			WHERE p->>'registryType' IN (%s)
+		)`, strings.Join(placeholders, ","))
+		mainWhere = append(mainWhere, sq.Expr(sql, args...))
+	} else if hasRemote {
+		// Only remote
+		mainWhere = append(mainWhere, sq.Expr(
 			`EXISTS (
 				SELECT 1 FROM jsonb_array_elements(value->'remotes') r
 				WHERE r->>'type' IN ('sse', 'http', 'streamable-http')
 			)`,
 		))
-	}
-
-	if len(conditions) > 0 {
-		mainWhere = append(mainWhere, conditions)
 	}
 
 	return mainWhere
@@ -153,13 +173,18 @@ func buildTransportFilter(filter ServerFilter) sq.And {
 	mainWhere := sq.And{}
 
 	if len(filter.HasTransport) > 0 {
-		mainWhere = append(mainWhere, sq.Expr(
-			`EXISTS (
-				SELECT 1 FROM jsonb_array_elements(value->'packages') p
-				WHERE p->'transport'->>'type' = ANY(?)
-			)`,
-			pq.Array(filter.HasTransport),
-		))
+		// Build placeholders for IN clause
+		placeholders := make([]string, len(filter.HasTransport))
+		args := make([]interface{}, len(filter.HasTransport))
+		for i, transport := range filter.HasTransport {
+			placeholders[i] = "?"
+			args[i] = transport
+		}
+		sql := fmt.Sprintf(`EXISTS (
+			SELECT 1 FROM jsonb_array_elements(value->'packages') p
+			WHERE p->'transport'->>'type' IN (%s)
+		)`, strings.Join(placeholders, ","))
+		mainWhere = append(mainWhere, sq.Expr(sql, args...))
 	}
 
 	return mainWhere
@@ -249,10 +274,39 @@ func buildMainQuery(filter ServerFilter, sort string, limit, offset int) (string
 		return "", nil, fmt.Errorf("failed to build main query: %w", err)
 	}
 
+	// Debug logging (temporary)
+	utils.Logger.Error("DEBUG QUERY", zap.String("sql", mainSQL), zap.Any("args", mainArgs))
+
+	// Renumber placeholders in mainSQL to account for CTE args
+	// If CTE has N args, main query placeholders should start at $N+1
+	placeholderOffset := len(cteArgs)
+	renumberedMainSQL := renumberPlaceholders(mainSQL, placeholderOffset)
+
 	// Combine CTE and main query
 	// We need to merge the arguments from both parts
-	fullSQL := fmt.Sprintf("WITH filtered_servers AS (%s) %s", cteSQL, mainSQL)
+	fullSQL := fmt.Sprintf("WITH filtered_servers AS (%s) %s", cteSQL, renumberedMainSQL)
 	allArgs := append(cteArgs, mainArgs...)
 
 	return fullSQL, allArgs, nil
+}
+
+// renumberPlaceholders renumbers PostgreSQL placeholders ($1, $2, etc.) by adding an offset
+// Uses regex with word boundaries to prevent substring matching (e.g., $1 in $10)
+func renumberPlaceholders(sql string, offset int) string {
+	if offset == 0 {
+		return sql
+	}
+
+	// Use regex to match whole placeholders with word boundary
+	// \b ensures $1 doesn't match inside $10, $11, etc.
+	re := regexp.MustCompile(`\$(\d+)\b`)
+
+	return re.ReplaceAllStringFunc(sql, func(match string) string {
+		// Extract the number from $N
+		num, err := strconv.Atoi(match[1:])
+		if err != nil {
+			return match // Keep original if parsing fails
+		}
+		return fmt.Sprintf("$%d", num+offset)
+	})
 }
