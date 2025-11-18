@@ -45,9 +45,9 @@ func EnrichServerWithStats(server map[string]interface{}, stats ServerStats) map
 
 	// Also keep nested stats for backward compatibility
 	server["stats"] = map[string]interface{}{
-		"rating":         stats.Rating,
-		"rating_count":   stats.RatingCount,
-		"install_count":  stats.InstallationCount,
+		"rating":              stats.Rating,
+		"rating_count":        stats.RatingCount,
+		"installation_count":  stats.InstallationCount,
 	}
 
 	// Calculate quality score

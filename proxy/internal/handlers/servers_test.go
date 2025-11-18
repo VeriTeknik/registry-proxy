@@ -198,9 +198,9 @@ func TestConvertMapToEnrichedServer_RemotesWithHeaders(t *testing.T) {
 			},
 		},
 		"stats": map[string]interface{}{
-			"rating":        4.5,
-			"rating_count":  10,
-			"install_count": 100,
+			"rating":              4.5,
+			"rating_count":        10,
+			"installation_count":  100,
 		},
 	}
 

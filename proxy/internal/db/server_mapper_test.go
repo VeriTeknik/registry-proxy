@@ -125,8 +125,8 @@ func TestEnrichServerWithStats(t *testing.T) {
 	if nestedStats["rating_count"] != 15 {
 		t.Errorf("stats.rating_count = %v, want 15", nestedStats["rating_count"])
 	}
-	if nestedStats["install_count"] != 200 {
-		t.Errorf("stats.install_count = %v, want 200", nestedStats["install_count"])
+	if nestedStats["installation_count"] != 200 {
+		t.Errorf("stats.installation_count = %v, want 200", nestedStats["installation_count"])
 	}
 
 	// Check quality score
