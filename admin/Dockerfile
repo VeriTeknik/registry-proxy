@@ -15,7 +15,7 @@ RUN go mod tidy
 RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o admin cmd/admin/main.go
 
 # Final stage
-FROM alpine:latest
+FROM alpine:3.20
 
 RUN apk --no-cache add ca-certificates
 

@@ -13,7 +13,7 @@ COPY . .
 RUN go build -o /build/proxy ./cmd/proxy
 
 # Final stage
-FROM alpine:latest
+FROM alpine:3.20
 
 WORKDIR /app
 
