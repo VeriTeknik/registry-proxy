@@ -199,16 +199,25 @@ func (h *SyncHandler) performSync(ctx context.Context, req SyncRequest) (*SyncRe
 		return nil, fmt.Errorf("fetching official servers: %w", err)
 	}
 
-	// Get existing servers from database
-	existingServers, _, err := h.ops.ListServers(ctx, 1, 1000, "", "", "")
-	if err != nil {
-		return nil, fmt.Errorf("fetching existing servers: %w", err)
-	}
-
-	// Create map of existing servers by name for quick lookup
+	// Get all existing servers from database using pagination
 	existingMap := make(map[string]*models.ServerDetail)
-	for i := range existingServers {
-		existingMap[existingServers[i].Name] = &existingServers[i]
+	const pageSize = 1000
+	const maxPages = 100 // Safety cap to prevent infinite loops
+	for page := 1; page <= maxPages; page++ {
+		existingServers, total, err := h.ops.ListServers(ctx, page, pageSize, "", "", "")
+		if err != nil {
+			return nil, fmt.Errorf("fetching existing servers (page %d): %w", page, err)
+		}
+		for i := range existingServers {
+			existingMap[existingServers[i].Name] = &existingServers[i]
+		}
+		// Stop when we've fetched all servers (handles exact multiples of pageSize)
+		if len(existingMap) >= int(total) || len(existingServers) < pageSize {
+			break
+		}
+		if page == maxPages {
+			return nil, fmt.Errorf("pagination safety limit reached (%d pages); expected %d servers but fetched %d", maxPages, total, len(existingMap))
+		}
 	}
 
 	// Process each official server (already filtered to latest versions only)

@@ -39,8 +39,11 @@ func (h *ServersHandler) ListServers(w http.ResponseWriter, r *http.Request) {
 		page = 1
 	}
 
+	// NOTE: 10,000 is a tactical cap. The admin UI currently fetches all servers
+	// in a single request. If the registry exceeds 10,000 servers, the frontend
+	// should be updated to use server-side pagination for the table view.
 	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
-	if limit < 1 || limit > 1000 {
+	if limit < 1 || limit > 10000 {
 		limit = 20
 	}
 

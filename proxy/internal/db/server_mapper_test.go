@@ -125,8 +125,17 @@ func TestEnrichServerWithStats(t *testing.T) {
 	if nestedStats["rating_count"] != 15 {
 		t.Errorf("stats.rating_count = %v, want 15", nestedStats["rating_count"])
 	}
+	if nestedStats["installation_count"] != 200 {
+		t.Errorf("stats.installation_count = %v, want 200", nestedStats["installation_count"])
+	}
+	// Verify deprecated install_count is still emitted for backward compatibility
 	if nestedStats["install_count"] != 200 {
-		t.Errorf("stats.install_count = %v, want 200", nestedStats["install_count"])
+		t.Errorf("stats.install_count = %v, want 200 (backward compat)", nestedStats["install_count"])
+	}
+
+	// Check top-level installation_count
+	if result["installation_count"] != 200 {
+		t.Errorf("installation_count = %v, want 200", result["installation_count"])
 	}
 
 	// Check quality score

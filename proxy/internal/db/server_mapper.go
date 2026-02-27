@@ -44,10 +44,13 @@ func EnrichServerWithStats(server map[string]interface{}, stats ServerStats) map
 	server["installation_count"] = stats.InstallationCount
 
 	// Also keep nested stats for backward compatibility
+	// TODO(v2): Remove "install_count" once all clients have migrated to "installation_count".
+	// Target removal: v2.0.0 release (track via issue/milestone).
 	server["stats"] = map[string]interface{}{
-		"rating":         stats.Rating,
-		"rating_count":   stats.RatingCount,
-		"install_count":  stats.InstallationCount,
+		"rating":              stats.Rating,
+		"rating_count":        stats.RatingCount,
+		"install_count":       stats.InstallationCount, // deprecated: use "installation_count" instead
+		"installation_count":  stats.InstallationCount,
 	}
 
 	// Calculate quality score
@@ -59,15 +62,6 @@ func EnrichServerWithStats(server map[string]interface{}, stats ServerStats) map
 	return server
 }
 
-// addBadges is a convenience function that calls generateBadges with extracted stats
-func addBadges(server map[string]interface{}) map[string]interface{} {
-	rating, _ := server["rating"].(float64)
-	ratingCount, _ := server["rating_count"].(int)
-	installCount, _ := server["installation_count"].(int)
-
-	server["badges"] = generateBadges(server, rating, ratingCount, installCount)
-	return server
-}
 
 // scanServerRow scans a database row into individual fields
 func scanServerRow(scanner interface {

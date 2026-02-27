@@ -64,15 +64,16 @@ async function apiRequest(url, options = {}) {
 // Server management functions
 async function loadServers() {
     try {
-        const response = await apiRequest('/api/servers?limit=1000');
+        const response = await apiRequest('/api/servers?limit=10000');
         const data = await response.json();
-        
-        // Update stats
+
+        // Update stats using pagination total (not array length) to avoid hardcap issues
         const servers = data.servers || [];
-        document.getElementById('total-servers').textContent = servers.length;
-        document.getElementById('active-servers').textContent = 
+        const total = data.pagination ? data.pagination.total : servers.length;
+        document.getElementById('total-servers').textContent = total;
+        document.getElementById('active-servers').textContent =
             servers.filter(s => !s.status || s.status === 'active').length;
-        document.getElementById('deprecated-servers').textContent = 
+        document.getElementById('deprecated-servers').textContent =
             servers.filter(s => s.status === 'deprecated').length;
         
         // Initialize or update DataTable
