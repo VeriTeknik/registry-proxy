@@ -62,15 +62,6 @@ func EnrichServerWithStats(server map[string]interface{}, stats ServerStats) map
 	return server
 }
 
-// addBadges is a convenience function that calls generateBadges with extracted stats
-func addBadges(server map[string]interface{}) map[string]interface{} {
-	rating, _ := server["rating"].(float64)
-	ratingCount, _ := server["rating_count"].(int)
-	installCount, _ := server["installation_count"].(int)
-
-	server["badges"] = generateBadges(server, rating, ratingCount, installCount)
-	return server
-}
 
 // scanServerRow scans a database row into individual fields
 func scanServerRow(scanner interface {

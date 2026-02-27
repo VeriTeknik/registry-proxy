@@ -437,13 +437,3 @@ func (h *EnhancedHandler) HandleServerDetail(w http.ResponseWriter, r *http.Requ
 	}
 }
 
-// Helper functions
-func parseInt(s string) int {
-	i, _ := strconv.Atoi(s)
-	return i
-}
-
-func parseFloat(s string) float64 {
-	f, _ := strconv.ParseFloat(s, 64)
-	return f
-}
