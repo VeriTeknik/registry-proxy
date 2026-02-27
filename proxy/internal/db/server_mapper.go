@@ -47,6 +47,7 @@ func EnrichServerWithStats(server map[string]interface{}, stats ServerStats) map
 	server["stats"] = map[string]interface{}{
 		"rating":              stats.Rating,
 		"rating_count":        stats.RatingCount,
+		"install_count":       stats.InstallationCount, // deprecated: kept for backward compatibility
 		"installation_count":  stats.InstallationCount,
 	}
 

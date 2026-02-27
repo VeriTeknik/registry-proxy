@@ -212,6 +212,8 @@ func (h *ServersHandler) convertMapToEnrichedServer(serverMap map[string]interfa
 		}
 		if installCount, ok := stats["installation_count"].(int); ok {
 			enriched.InstallationCount = installCount
+		} else if installCount, ok := stats["install_count"].(int); ok {
+			enriched.InstallationCount = installCount
 		}
 	}
 
