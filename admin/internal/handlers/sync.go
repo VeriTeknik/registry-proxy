@@ -200,7 +200,7 @@ func (h *SyncHandler) performSync(ctx context.Context, req SyncRequest) (*SyncRe
 	}
 
 	// Get existing servers from database
-	existingServers, _, err := h.ops.ListServers(ctx, 1, 1000, "", "", "")
+	existingServers, _, err := h.ops.ListServers(ctx, 1, 10000, "", "", "")
 	if err != nil {
 		return nil, fmt.Errorf("fetching existing servers: %w", err)
 	}

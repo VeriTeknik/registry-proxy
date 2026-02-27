@@ -108,9 +108,14 @@ func (o *Operations) ListServers(ctx context.Context, page, limit int, status, r
 			return nil, 0, fmt.Errorf("failed to unmarshal server JSON: %w", err)
 		}
 
-		// Set additional fields
+		// Set additional fields from SQL columns
 		server.ID = serverName
 		server.Status = models.ServerStatus(status)
+		// The DB stores version as a flat field ("version") but the Go model
+		// expects it nested in VersionDetail. Use the SQL version column as fallback.
+		if server.VersionDetail.Version == "" {
+			server.VersionDetail.Version = version
+		}
 
 		servers = append(servers, server)
 	}
