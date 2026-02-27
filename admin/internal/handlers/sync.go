@@ -202,7 +202,8 @@ func (h *SyncHandler) performSync(ctx context.Context, req SyncRequest) (*SyncRe
 	// Get all existing servers from database using pagination
 	existingMap := make(map[string]*models.ServerDetail)
 	const pageSize = 1000
-	for page := 1; ; page++ {
+	const maxPages = 100 // Safety cap to prevent infinite loops
+	for page := 1; page <= maxPages; page++ {
 		existingServers, total, err := h.ops.ListServers(ctx, page, pageSize, "", "", "")
 		if err != nil {
 			return nil, fmt.Errorf("fetching existing servers (page %d): %w", page, err)
@@ -213,6 +214,9 @@ func (h *SyncHandler) performSync(ctx context.Context, req SyncRequest) (*SyncRe
 		// Stop when we've fetched all servers (handles exact multiples of pageSize)
 		if len(existingMap) >= int(total) || len(existingServers) < pageSize {
 			break
+		}
+		if page == maxPages {
+			return nil, fmt.Errorf("pagination safety limit reached (%d pages); expected %d servers but fetched %d", maxPages, total, len(existingMap))
 		}
 	}
 
