@@ -92,4 +92,4 @@ monitoring/postgres_data/
 backup/
 backups/
 .claude/*
-proxy_data_backup.sql
+*_backup.sql

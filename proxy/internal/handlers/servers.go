@@ -213,6 +213,7 @@ func (h *ServersHandler) convertMapToEnrichedServer(serverMap map[string]interfa
 		if installCount, ok := stats["installation_count"].(int); ok {
 			enriched.InstallationCount = installCount
 		} else if installCount, ok := stats["install_count"].(int); ok {
+			// TODO(v2): Remove "install_count" fallback when deprecated field is dropped.
 			enriched.InstallationCount = installCount
 		}
 	}

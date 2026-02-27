@@ -255,6 +255,54 @@ func TestConvertMapToEnrichedServer_RemotesWithHeaders(t *testing.T) {
 	}
 }
 
+// TestConvertMapToEnrichedServer_InstallCountFallback tests backward compatibility
+// for the deprecated "install_count" field falling back when "installation_count" is absent.
+func TestConvertMapToEnrichedServer_InstallCountFallback(t *testing.T) {
+	handler := &ServersHandler{}
+
+	// Test with only the deprecated "install_count" field
+	serverMap := map[string]interface{}{
+		"id":          "test/server",
+		"description": "Test server",
+		"stats": map[string]interface{}{
+			"rating":        3.5,
+			"rating_count":  5,
+			"install_count": 42, // deprecated field only
+		},
+	}
+
+	result := handler.convertMapToEnrichedServer(serverMap)
+
+	if result.InstallationCount != 42 {
+		t.Errorf("Expected installation_count 42 from install_count fallback, got %d", result.InstallationCount)
+	}
+	if result.Rating != 3.5 {
+		t.Errorf("Expected rating 3.5, got %f", result.Rating)
+	}
+}
+
+// TestConvertMapToEnrichedServer_InstallationCountPreferred tests that "installation_count"
+// takes precedence over deprecated "install_count".
+func TestConvertMapToEnrichedServer_InstallationCountPreferred(t *testing.T) {
+	handler := &ServersHandler{}
+
+	serverMap := map[string]interface{}{
+		"id": "test/server",
+		"stats": map[string]interface{}{
+			"rating":             4.0,
+			"rating_count":       10,
+			"installation_count": 200,
+			"install_count":      150, // deprecated, should be ignored
+		},
+	}
+
+	result := handler.convertMapToEnrichedServer(serverMap)
+
+	if result.InstallationCount != 200 {
+		t.Errorf("Expected installation_count 200 (preferred over install_count), got %d", result.InstallationCount)
+	}
+}
+
 // TestRemoteHeaderBackwardCompatibility tests that empty values are omitted in JSON
 func TestRemoteHeaderBackwardCompatibility(t *testing.T) {
 	// Test that headers without value field are still valid

@@ -203,14 +203,15 @@ func (h *SyncHandler) performSync(ctx context.Context, req SyncRequest) (*SyncRe
 	existingMap := make(map[string]*models.ServerDetail)
 	const pageSize = 1000
 	for page := 1; ; page++ {
-		existingServers, _, err := h.ops.ListServers(ctx, page, pageSize, "", "", "")
+		existingServers, total, err := h.ops.ListServers(ctx, page, pageSize, "", "", "")
 		if err != nil {
 			return nil, fmt.Errorf("fetching existing servers (page %d): %w", page, err)
 		}
 		for i := range existingServers {
 			existingMap[existingServers[i].Name] = &existingServers[i]
 		}
-		if len(existingServers) < pageSize {
+		// Stop when we've fetched all servers (handles exact multiples of pageSize)
+		if len(existingMap) >= int(total) || len(existingServers) < pageSize {
 			break
 		}
 	}

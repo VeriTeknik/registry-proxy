@@ -44,10 +44,12 @@ func EnrichServerWithStats(server map[string]interface{}, stats ServerStats) map
 	server["installation_count"] = stats.InstallationCount
 
 	// Also keep nested stats for backward compatibility
+	// TODO(v2): Remove "install_count" once all clients have migrated to "installation_count".
+	// Target removal: v2.0.0 release (track via issue/milestone).
 	server["stats"] = map[string]interface{}{
 		"rating":              stats.Rating,
 		"rating_count":        stats.RatingCount,
-		"install_count":       stats.InstallationCount, // deprecated: kept for backward compatibility
+		"install_count":       stats.InstallationCount, // deprecated: use "installation_count" instead
 		"installation_count":  stats.InstallationCount,
 	}
 
