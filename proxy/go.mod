@@ -7,7 +7,7 @@ toolchain go1.24.4
 require (
 	github.com/Masterminds/squirrel v1.5.4
 	github.com/go-playground/validator/v10 v10.30.1
-	github.com/lib/pq v1.10.9
+	github.com/lib/pq v1.12.0
 	github.com/patrickmn/go-cache v2.1.0+incompatible
 	github.com/prometheus/client_golang v1.23.2
 	go.uber.org/zap v1.27.1
