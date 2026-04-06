@@ -1047,8 +1047,15 @@ async function validateImport() {
         }
         if (!server.repository.url) {
             validationErrors.push(`${server.key}: Missing repository URL`);
-        } else if (!server.repository.url.includes('github.com')) {
-            validationErrors.push(`${server.key}: Repository must be a GitHub URL`);
+        } else {
+            try {
+                const repoUrl = new URL(server.repository.url);
+                if (repoUrl.hostname !== 'github.com' && !repoUrl.hostname.endsWith('.github.com')) {
+                    validationErrors.push(`${server.key}: Repository must be a GitHub URL`);
+                }
+            } catch {
+                validationErrors.push(`${server.key}: Invalid repository URL`);
+            }
         }
         
         // Validate against schema (if endpoint exists)
@@ -1095,10 +1102,17 @@ function getSelectedServers() {
             server.version_detail.version = document.getElementById(`import-version-${index}`).value;
             
             // Generate repository ID from URL if possible
-            if (server.repository.url && server.repository.url.includes('github.com')) {
-                const match = server.repository.url.match(/github\.com\/([^\/]+)\/([^\/\.]+)/);
-                if (match) {
-                    server.repository.id = `github-${match[1]}-${match[2]}`;
+            if (server.repository.url) {
+                try {
+                    const repoUrl = new URL(server.repository.url);
+                    if (repoUrl.hostname === 'github.com' || repoUrl.hostname.endsWith('.github.com')) {
+                        const match = repoUrl.pathname.match(/^\/([^\/]+)\/([^\/\.]+)/);
+                        if (match) {
+                            server.repository.id = `github-${match[1]}-${match[2]}`;
+                        }
+                    }
+                } catch {
+                    // Invalid URL, skip repository ID generation
                 }
             }
             
