@@ -337,12 +337,12 @@ func filterLatestVersions(items []OfficialServerItem) []models.ServerDetail {
 
 // fetchOfficialServers fetches servers from the official registry with pagination
 func (h *SyncHandler) fetchOfficialServers(ctx context.Context) ([]models.ServerDetail, error) {
-	const maxPages = 100  // Safety limit to prevent infinite loops
-	const pageLimit = 100 // Number of items per page
+	const maxPages = 500  // Safety limit to prevent infinite loops
+	const pageLimit = 100 // Number of items per page (upstream max)
 
 	allServers := make([]models.ServerDetail, 0)
 	cursor := ""
-	client := &http.Client{Timeout: 30 * time.Second}
+	client := &http.Client{Timeout: 60 * time.Second}
 
 	for pageCount := 1; pageCount <= maxPages; pageCount++ {
 		// Fetch a single page
