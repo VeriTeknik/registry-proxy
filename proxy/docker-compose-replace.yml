@@ -37,7 +37,6 @@ services:
       
       # Security headers
       - "traefik.http.middlewares.proxy-security-headers.headers.frameDeny=true"
-      - "traefik.http.middlewares.proxy-security-headers.headers.sslRedirect=true"
       - "traefik.http.middlewares.proxy-security-headers.headers.browserXssFilter=true"
       - "traefik.http.middlewares.proxy-security-headers.headers.contentTypeNosniff=true"
       - "traefik.http.middlewares.proxy-security-headers.headers.forceSTSHeader=true"
