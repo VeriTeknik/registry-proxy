@@ -25,6 +25,8 @@ services:
       # Entrypoints
       - "--entrypoints.web.address=:80"
       - "--entrypoints.websecure.address=:443"
+      - "--entrypoints.websecure.transport.respondingTimeouts.readTimeout=600s"
+      - "--entrypoints.websecure.transport.respondingTimeouts.writeTimeout=600s"
       
       # Let's Encrypt
       - "--certificatesresolvers.letsencrypt.acme.tlschallenge=true"

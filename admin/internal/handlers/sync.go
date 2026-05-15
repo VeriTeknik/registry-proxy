@@ -140,7 +140,12 @@ func (h *SyncHandler) PreviewSync(w http.ResponseWriter, r *http.Request) {
 	// Always run preview in dry-run mode
 	req.DryRun = true
 
-	result, err := h.performSync(r.Context(), req)
+	// Use a background context with generous timeout so sync isn't cancelled
+	// when the reverse proxy's own response timeout fires
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+	defer cancel()
+
+	result, err := h.performSync(ctx, req)
 	if err != nil {
 		http.Error(w, fmt.Sprintf("Sync preview failed: %v", err), http.StatusInternalServerError)
 		return
@@ -166,7 +171,12 @@ func (h *SyncHandler) ExecuteSync(w http.ResponseWriter, r *http.Request) {
 	// Force execute mode
 	req.DryRun = false
 
-	result, err := h.performSync(r.Context(), req)
+	// Use a background context with generous timeout so sync isn't cancelled
+	// when the reverse proxy's own response timeout fires
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+	defer cancel()
+
+	result, err := h.performSync(ctx, req)
 	if err != nil {
 		http.Error(w, fmt.Sprintf("Sync execution failed: %v", err), http.StatusInternalServerError)
 		return
@@ -174,7 +184,7 @@ func (h *SyncHandler) ExecuteSync(w http.ResponseWriter, r *http.Request) {
 
 	// Log audit entry
 	user := middleware.GetUserFromContext(r.Context())
-	h.ops.LogAuditEntry(r.Context(), &models.AuditLog{
+	h.ops.LogAuditEntry(ctx, &models.AuditLog{
 		User:    user,
 		Action:  "SYNC_REGISTRY",
 		Details: fmt.Sprintf("Synced with official registry. Added: %d, Updated: %d", result.Added, result.Updated),

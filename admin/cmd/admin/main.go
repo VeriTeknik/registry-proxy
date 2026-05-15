@@ -87,11 +87,12 @@ func main() {
 	}
 
 	// Create HTTP server
+	// WriteTimeout must be generous to allow long-running sync operations
 	srv := &http.Server{
 		Addr:         ":" + port,
 		Handler:      router,
 		ReadTimeout:  15 * time.Second,
-		WriteTimeout: 15 * time.Second,
+		WriteTimeout: 10 * time.Minute,
 		IdleTimeout:  60 * time.Second,
 	}
 
