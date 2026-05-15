@@ -1,5 +1,3 @@
-version: '3.8'
-
 networks:
   default:
     external:
@@ -43,7 +41,6 @@ services:
       - "traefik.http.middlewares.admin-security.headers.browserXssFilter=true"
       - "traefik.http.middlewares.admin-security.headers.contentTypeNosniff=true"
       - "traefik.http.middlewares.admin-security.headers.frameDeny=true"
-      - "traefik.http.middlewares.admin-security.headers.sslRedirect=true"
       - "traefik.http.middlewares.admin-security.headers.stsSeconds=31536000"
       - "traefik.http.middlewares.admin-security.headers.stsIncludeSubdomains=true"
       - "traefik.http.middlewares.admin-security.headers.stsPreload=true"
