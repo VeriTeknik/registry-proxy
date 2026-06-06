@@ -47,7 +47,7 @@ jobs:
 
       - name: Create Pull Request
         if: steps.check.outputs.changes == 'true'
-        uses: peter-evans/create-pull-request@v6
+        uses: peter-evans/create-pull-request@v8
         with:
           commit-message: "chore(${{ matrix.module }}): update Go dependencies"
           title: "chore(${{ matrix.module }}): update Go dependencies"
